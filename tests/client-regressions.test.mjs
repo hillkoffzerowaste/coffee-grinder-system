@@ -20,6 +20,8 @@ Object.assign(dom.window.HTMLDialogElement.prototype,{
   close(){if(this.open){this.open=false;this.dispatchEvent(new dom.window.Event('close'));}},
 });
 Object.assign(dom.window.HTMLElement.prototype,{scrollTo(){},scrollIntoView(){}});
+// jsdom does not implement media playback; keep routine hook cleanup silent.
+Object.assign(dom.window.HTMLMediaElement.prototype,{pause(){},play(){return Promise.resolve();}});
 const { createRoot } = await import('react-dom/client');
 const { AppRouterContext } = await import('next/dist/shared/lib/app-router-context.shared-runtime.js');
 const { CounterWorkspace } = await import('../src/components/counter-workspace.tsx');
@@ -30,6 +32,7 @@ const { QuantityDialog } = await import('../src/components/quantity-dialog.tsx')
 const { ProductSearch } = await import('../src/components/product-search.tsx');
 const {barcodeBits}=await import('../src/lib/barcode.ts');
 const {useQueueAlarm}=await import('../src/lib/use-queue-alarm.ts');
+const {useSounds}=await import('../src/lib/use-sounds.ts');
 const {Code128Reader,BitArray}=await import('@zxing/library');
 const router = {replace(){},refresh(){},push(){},prefetch(){},back(){},forward(){}};
 const product = {id:'e9b56600-31ae-48ca-8b4e-669a8794b460',sku:'RB-HK-TEST',name:'Coffee',size_grams:200,barcode:'001234567890',unit:'bag'};
@@ -131,25 +134,72 @@ function packingApi(t,jobs=[bag()]) {
   return state;
 }
 
-test('queue alarm repeats for backlog, survives partial claims, stops on empty/mute/unmount',async(t)=>{
- t.mock.timers.enable({apis:['setTimeout','setInterval']});
+test('queue alarm plays the new-order sound once when queued count increases',async()=>{
  const calls=[];const play=kind=>calls.push(kind);
- function Alarm({count,enabled}){useQueueAlarm(count>0,enabled,play);return null;}
+ function Alarm({count,enabled}){useQueueAlarm(count,false,enabled,play);return null;}
  const root=createRoot(document.getElementById('root'));
  const render=async(count,enabled)=>act(async()=>root.render(React.createElement(Alarm,{count,enabled})));
+ try {
+  await render(0,true);assert.deepEqual(calls,[]);
+  await render(2,true);assert.deepEqual(calls,['newJob']);
+  await render(1,true);assert.deepEqual(calls,['newJob']);
+  await render(3,true);assert.deepEqual(calls,['newJob','newJob']);
+ }finally{await act(async()=>root.unmount());}
+});
+
+test('queue alarm uses calm backlog and SLA cadences, then stops on empty or mute',async(t)=>{
+ t.mock.timers.enable({apis:['setInterval']});
+ const calls=[];const play=kind=>calls.push(kind);
+ function Alarm({count,overdue,enabled}){useQueueAlarm(count,overdue,enabled,play);return null;}
+ const root=createRoot(document.getElementById('root'));
+ const render=async(count,overdue,enabled)=>act(async()=>root.render(React.createElement(Alarm,{count,overdue,enabled})));
  const tick=async(ms)=>act(async()=>t.mock.timers.tick(ms));
  try {
-  await render(2,false);await tick(6000);assert.equal(calls.length,0);
-  await render(2,true);await tick(1);assert.equal(calls.length,1);
-  await tick(3000);assert.equal(calls.length,2);
-  await render(1,true);await tick(3000);assert.equal(calls.length,3);
-  await render(0,true);await tick(6000);assert.equal(calls.length,3);
-  await render(1,true);await tick(1);assert.equal(calls.length,4);
-  await render(1,false);await tick(6000);assert.equal(calls.length,4);
-  await render(1,true);await tick(1);assert.equal(calls.length,5);
+  await render(2,false,true);calls.length=0;
+  await tick(14999);assert.deepEqual(calls,[]);
+  await tick(1);assert.deepEqual(calls,['pending']);
+  await render(2,true,true);calls.length=0;
+  await tick(9999);assert.deepEqual(calls,[]);
+  await tick(1);assert.deepEqual(calls,['overdue']);
+  await render(0,false,true);await tick(30000);assert.deepEqual(calls,['overdue']);
+  await render(2,false,false);await tick(30000);assert.deepEqual(calls,['overdue']);
  }finally{await act(async()=>root.unmount());}
- const count=calls.length;await tick(6000);assert.equal(calls.length,count);
- assert.ok(calls.every(kind=>kind==='newJob'));
+ const count=calls.length;await tick(30000);assert.equal(calls.length,count);
+});
+
+test('enabling sound with an existing backlog does not replay it as a new arrival',async()=>{
+ const calls=[];const play=kind=>calls.push(kind);
+ function Alarm({enabled}){useQueueAlarm(2,false,enabled,play);return null;}
+ const root=createRoot(document.getElementById('root'));
+ try {
+  await act(async()=>root.render(React.createElement(Alarm,{enabled:false})));
+  await act(async()=>root.render(React.createElement(Alarm,{enabled:true})));
+  assert.deepEqual(calls,[]);
+ }finally{await act(async()=>root.unmount());}
+});
+
+test('a newer modern alert can supersede a loading clip without disabling sound',async()=>{
+ const originalAudioContext=window.AudioContext,originalAudio=window.Audio;let sound;
+ class FakeAudioContext {
+  state='suspended';currentTime=0;destination={};
+  async resume(){this.state='running';}async suspend(){this.state='suspended';}async close(){this.state='closed';}
+  createOscillator(){throw new Error('not used');}createGain(){throw new Error('not used');}
+ }
+ class LoadingClip {
+  currentTime=0;preload='';volume=1;reject=null;
+  play(){return new Promise((_resolve,reject)=>{this.reject=reject;});}
+  pause(){if(this.reject){const reject=this.reject;this.reject=null;queueMicrotask(()=>reject(Object.assign(new Error('interrupted'),{name:'AbortError'})));}}
+ }
+ function Harness(){sound=useSounds();return null;}
+ window.AudioContext=FakeAudioContext;window.Audio=LoadingClip;
+ const root=createRoot(document.getElementById('root'));
+ try {
+  await act(async()=>root.render(React.createElement(Harness)));
+  await act(async()=>sound.enable());
+  await act(async()=>{sound.play('pending');await Promise.resolve();await Promise.resolve();});
+  assert.equal(sound.enabled,true);
+  assert.equal(sound.soundError,'');
+ }finally{await act(async()=>root.unmount());window.AudioContext=originalAudioContext;window.Audio=originalAudio;}
 });
 
 test('Code128 barcode images decode to exact configured values including leading zero',()=>{
@@ -160,15 +210,22 @@ test('Code128 barcode images decode to exact configured values including leading
  }
 });
 
-test('visible barcodes in both stations and sound scan/error/mute are functional',async()=>{
- const originalFetch=globalThis.fetch,originalAudio=window.AudioContext;const tones=[],gains=[];
+test('visible barcodes in both stations and modern alerts plus scan feedback are functional',async()=>{
+ const originalFetch=globalThis.fetch,originalAudioContext=window.AudioContext,originalAudio=window.Audio;const tones=[],gains=[],clips=[];
  class FakeAudio {
   state='suspended';currentTime=0;destination={};
   async resume(){this.state='running';}async suspend(){this.state='suspended';}async close(){this.state='closed';}
   createOscillator(){return {frequency:{value:0},connect(){},disconnect(){},start(){tones.push(this.frequency.value);},stop(){}};}
   createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(value){gains.push(value);}},connect(){},disconnect(){}};}
  }
+ class FakeClip {
+  currentTime=0;preload='';volume=1;played=0;paused=0;
+  constructor(src){this.src=src;clips.push(this);}
+  play(){this.played++;return Promise.resolve();}
+  pause(){this.paused++;}
+ }
  window.AudioContext=FakeAudio;
+ window.Audio=FakeClip;
  const grinds=['6','8','10','12','15'].map(v=>({...grind,id:v,grind_value:v,barcode:'990'+v.padStart(3,'0')}));
  globalThis.fetch=async(url)=>{
   if(url==='/api/catalog/options')return json({grinds,grinders:[]});
@@ -180,13 +237,14 @@ test('visible barcodes in both stations and sound scan/error/mute are functional
   assert.equal(document.querySelector('.barcode-drawer')?.firstElementChild?.getAttribute('aria-label'),'บาร์โค้ดเบอร์บด','counter renders the barcode panel in its original workspace position');
   assert.equal(document.querySelector('details.barcode-drawer'),null,'counter keeps grind barcodes visible without a disclosure');
   assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);
-  assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.deepEqual(tones,[880]);assert.ok(gains.includes(1),'alert tone reaches full Web Audio volume');assert.equal(document.activeElement?.id,'scan','counter restores scan focus after an action');
+  assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.equal(clips.find(clip=>clip.src==='/sounds/order-new.wav')?.played,1,'sound test previews the approved new-order alert');assert.deepEqual(tones,[]);assert.equal(document.activeElement?.id,'scan','counter restores scan focus after an action');
   await scan('scan','9999');assert.deepEqual(tones.slice(-2),[220,220]);
-  await scan('scan',product.barcode);assert.equal(tones.at(-1),880);
+  await scan('scan',product.barcode);assert.equal(tones.at(-1),880);assert.ok(gains.includes(1),'scan feedback reaches full Web Audio volume');
   await clickText('ปิดเสียง');const count=tones.length;
+  assert.ok(clips.every(clip=>clip.paused>0),'mute stops every modern alert clip');
   await clickText('ยกเลิกรายการนี้');await scan('scan','9999');assert.equal(tones.length,count);
-  await unmount();unmount=await mount(PackingWorkspace);assert.equal(document.querySelector('.barcode-drawer')?.firstElementChild?.getAttribute('aria-label'),'บาร์โค้ดเบอร์บด','packing renders the barcode panel in its original workspace position');assert.equal(document.querySelector('details.barcode-drawer'),null,'packing keeps grind barcodes visible without a disclosure');assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);assert.ok(document.body.textContent.includes('จนงานรอรับทั้งระบบเหลือ 0 ถุง'),'packing clearly explains when the repeating alarm stops');await clickText('สแกนสินค้าใหม่');await settleFocus();assert.equal(document.activeElement?.id,'packing-scan','packing restores scan focus after an action');
- }finally{await unmount();globalThis.fetch=originalFetch;window.AudioContext=originalAudio;}
+  await unmount();unmount=await mount(PackingWorkspace);assert.equal(document.querySelector('.barcode-drawer')?.firstElementChild?.getAttribute('aria-label'),'บาร์โค้ดเบอร์บด','packing renders the barcode panel in its original workspace position');assert.equal(document.querySelector('details.barcode-drawer'),null,'packing keeps grind barcodes visible without a disclosure');assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);assert.ok(document.body.textContent.includes('หยุดเมื่อรอรับเหลือ 0 ถุง'),'packing clearly explains when the repeating alarm stops');await clickText('สแกนสินค้าใหม่');await settleFocus();assert.equal(document.activeElement?.id,'packing-scan','packing restores scan focus after an action');
+ }finally{await unmount();globalThis.fetch=originalFetch;window.AudioContext=originalAudioContext;window.Audio=originalAudio;}
 });
 
 test('order monitor shows queued wait summary and overdue warning',async()=>{

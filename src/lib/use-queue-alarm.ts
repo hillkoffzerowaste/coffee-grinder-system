@@ -1,16 +1,24 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { SoundKind } from "./use-sounds";
 
-export const QUEUE_ALARM_INTERVAL_MS = 3000;
+export const QUEUE_REMINDER_INTERVAL_MS = 15000;
+export const SLA_REMINDER_INTERVAL_MS = 10000;
 
-// Alarm follows unclaimed work, not arrivals. This also covers enabling audio
-// after an order arrives and returning to a page with a pre-existing backlog.
-export function useQueueAlarm(hasQueuedWork: boolean, enabled: boolean, play: (kind: SoundKind) => void) {
+export function useQueueAlarm(queuedCount: number, hasOverdueWork: boolean, enabled: boolean, play: (kind: SoundKind) => void) {
+  const previousCount = useRef(queuedCount);
+  const hasQueuedWork = queuedCount > 0;
+
+  useEffect(() => {
+    if (enabled && queuedCount > previousCount.current) play("newJob");
+    previousCount.current = queuedCount;
+  }, [queuedCount, enabled, play]);
+
   useEffect(() => {
     if (!hasQueuedWork || !enabled) return;
-    const initial = setTimeout(() => play("newJob"), 0);
-    const repeat = setInterval(() => play("newJob"), QUEUE_ALARM_INTERVAL_MS);
-    return () => { clearTimeout(initial); clearInterval(repeat); };
-  }, [hasQueuedWork, enabled, play]);
+    const kind:SoundKind=hasOverdueWork?"overdue":"pending";
+    const interval=hasOverdueWork?SLA_REMINDER_INTERVAL_MS:QUEUE_REMINDER_INTERVAL_MS;
+    const repeat=setInterval(()=>play(kind),interval);
+    return()=>clearInterval(repeat);
+  }, [hasQueuedWork, hasOverdueWork, enabled, play]);
 }
