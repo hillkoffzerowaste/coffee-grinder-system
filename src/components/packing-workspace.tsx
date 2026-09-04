@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { jobStatusLabels } from "@/lib/job-status";
+import { dropdownGrinds } from "@/lib/grind-options";
 import { Topbar } from "@/components/topbar";
 import { GrindBarcodes } from "@/components/grind-barcodes";
 import { SoundControls } from "@/components/sound-controls";
@@ -99,9 +101,16 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
     scanRef.current?.focus();
   }
 
+  function selectGrind(grind:GrindLookup) {
+    if(operation.current||job?.status!=="CLAIMED")return;
+    setVerifiedGrind(null);
+    if(grind.grind_value!==job.grind_value_snapshot){setError(`เบอร์บดไม่ตรงใบงาน — ต้องเป็นเบอร์ ${job.grind_value_snapshot}`);play("error");return;}
+    setVerifiedGrind(grind);setError("");play("success");
+  }
+
   async function transition() {
     if (!job || !action || operation.current) return;
-    if (action.next === "GRINDING" && (!verifiedGrind || !grinderId)) { play("error");setError("สแกนเบอร์บดและเลือกคนบดก่อนเริ่มงาน"); return; }
+    if (action.next === "GRINDING" && (!verifiedGrind || !grinderId)) { play("error");setError("เลือกหรือสแกนเบอร์บด และเลือกคนบดก่อนเริ่มงาน"); return; }
     operation.current = true; setBusy(true); setError("");
     try {
       await apiFetch(`/api/jobs/${job.id}/transition`, { method: "POST", body: JSON.stringify({ expectedStatus: job.status, nextStatus: action.next, grinderUserId: grinderId || undefined, grindId: verifiedGrind?.id }) });
@@ -112,16 +121,39 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
     finally { operation.current = false; setBusy(false); }
   }
 
-  return <div className="app-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace grid">
-    <section className="panel stack">
+  return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace grid packing-layout">
+    <section className="panel packing-queue">
       <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
       <div className="row"><h2>คิวงานบด / แพ็ค</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy} onClick={() => { if (operation.current) return; setFilter(""); selectJob(null); setVerifiedGrind(null); }}>แสดงทุกงาน</button></div>
       <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{job?.status === "CLAIMED" ? `สแกนเบอร์บด ${job.grind_value_snapshot}` : "สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy} /></form>
-      <GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} />
-      {error && <div role="alert" className="notice error">{error}</div>}
-      <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th></th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>#{item.queue_seq}</td><td>{item.product_name_snapshot}<br /><small>{item.sku_snapshot}</small></td><td>{item.size_grams_snapshot} g</td><td>{item.grind_value_snapshot}</td><td><span className="status">{item.status}</span></td><td><button className="button secondary" disabled={busy} onClick={() => selectJob(item.id)}>เปิดงาน</button></td></tr>)}</tbody></table>{!visible.length && <div className="empty">ไม่มีงานในคิวนี้</div>}</div>
+      <details className="barcode-drawer"><summary>แสดงบาร์โค้ดเบอร์บด</summary><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></details>
+      <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th></th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>#{item.queue_seq}</td><td>{item.product_name_snapshot}<br /><small>{item.sku_snapshot}</small></td><td>{item.size_grams_snapshot} g</td><td>{item.grind_value_snapshot}</td><td><span className="status">{jobStatusLabels[item.status]}</span></td><td><button className="button secondary" disabled={busy} onClick={() => selectJob(item.id)}>เปิดงาน</button></td></tr>)}</tbody></table>{!visible.length && <div className="empty">ไม่มีงานในคิวนี้</div>}</div>
       <small>อัปเดตล่าสุด {lastSync || "กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
     </section>
-    <aside className="panel stack"><h2>งานที่เลือก</h2>{job ? <><strong className="product-name">คิว #{job.queue_seq}</strong><div>{job.product_name_snapshot}</div><div className="product-size">{job.size_grams_snapshot} g · เบอร์ {job.grind_value_snapshot}</div><span className="status">{job.status}</span>{job.status === "CLAIMED" && <><div className={verifiedGrind ? "notice success" : "notice"}>{verifiedGrind ? "ตรวจเบอร์บดแล้ว" : "รอสแกนเบอร์บด"}</div><div className="field"><label htmlFor="grinder">คนบด</label><select id="grinder" className="select" value={grinderId} onChange={(event) => setGrinderId(event.target.value)}><option value="">เลือกคนบด</option>{grinders.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></>}{action && <button className="button large" disabled={busy} onClick={() => void transition()}>{busy ? "กำลังบันทึก..." : action.label}</button>}</> : <div className="empty">สแกนหรือเลือกงานจากคิว</div>}</aside>
+    <aside className="panel packing-detail">
+      <h2>งานที่เลือก</h2>
+      <div className="detail-content">{job ? <>
+        <strong>คิว #{job.queue_seq} · {jobStatusLabels[job.status]}</strong>
+        <div className="product-name">{job.product_name_snapshot}</div>
+        <div className="product-size">{job.size_grams_snapshot} g · เบอร์ {job.grind_value_snapshot}</div>
+        {job.status==="CLAIMED" && <>
+          <div className={verifiedGrind?"notice success":"notice"}>{verifiedGrind?"ตรวจเบอร์บดแล้ว":"เลือกเบอร์บดด้านล่าง หรือสแกนบาร์โค้ด"}</div>
+          <div className="row" role="group" aria-label="เลือกเบอร์บด">
+            {grinds.filter(grind=>["6","8","10","12","15"].includes(grind.grind_value)).map(grind=><button type="button" className="button secondary" key={grind.id} disabled={busy} aria-pressed={verifiedGrind?.id===grind.id} onClick={()=>selectGrind(grind)}>เบอร์ {grind.grind_value}</button>)}
+          </div>
+          <div className="field"><label htmlFor="packing-grind-select">เลือกเบอร์บดเอง (5–17)</label><select id="packing-grind-select" className="select" disabled={busy} value={verifiedGrind?.id||""} onChange={event=>{
+            const chosen=grinds.find(grind=>grind.id===event.target.value);
+            if(chosen)selectGrind({...chosen,barcode:null});else setVerifiedGrind(null);
+          }}><option value="">เลือกเบอร์บด</option>{dropdownGrinds(grinds).map(grind=><option key={grind.id} value={grind.id}>เบอร์ {grind.grind_value}</option>)}</select></div>
+          {catalogError&&<div className="notice error" role="alert">{catalogError}<button className="button secondary" onClick={()=>void reloadCatalog()}>โหลดใหม่</button></div>}
+          <div className="field"><label htmlFor="grinder">คนบด</label><select id="grinder" className="select" disabled={busy} value={grinderId} onChange={event=>setGrinderId(event.target.value)}><option value="">เลือกคนบด</option>{grinders.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+        </>}
+      </> : <p>สแกนหรือเลือกงานจากคิว</p>}</div>
+      <div className="detail-actions">
+        {error&&<div role="alert" className="notice error">{error}</div>}
+        {action&&<button data-testid="job-action" className="button large" disabled={busy} onClick={()=>void transition()}>{busy?"กำลังบันทึก...":action.label}</button>}
+        <small>รอรับ {queuedCount} ถุง · เสียงซ้ำจนรับงานครบ</small>
+      </div>
+    </aside>
   </main></div>;
 }

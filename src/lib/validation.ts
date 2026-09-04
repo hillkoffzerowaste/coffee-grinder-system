@@ -14,7 +14,7 @@ export const orderSchema = z.object({
     productId: z.uuid(),
     productBarcode: z.string().regex(/^\d{4,32}$/),
     grindId: z.uuid(),
-    grindBarcode: z.string().regex(/^\d{1,32}$/),
+    grindBarcode: z.string().regex(/^\d{1,32}$/).nullable(),
     quantity: z.number().int().min(1).max(99),
   })).min(1).max(100)
     .refine((lines) => new Set(lines.map((line) => line.clientLineId)).size === lines.length, "Duplicate line identifiers")
@@ -33,7 +33,7 @@ export const pendingOrderSchema = z.object({
   lines: z.array(z.object({
     clientLineId: z.string(), quantity: z.number().int().min(1).max(99),
     product: z.object({id:z.uuid(),name:z.string(),sku:z.string(),size_grams:z.number().min(200),unit:z.string(),barcode:z.string()}),
-    grind: z.object({id:z.uuid(),barcode:z.string(),grind_value:z.string()}),
+    grind: z.object({id:z.uuid(),barcode:z.string().nullable(),grind_value:z.string()}),
   })).min(1).max(100),
 }).superRefine((saved,ctx) => {
   try {

@@ -3,7 +3,7 @@ import { barcodeBits } from "@/lib/barcode";
 import type { GrindLookup } from "@/lib/types";
 const primary=["6","8","10","12","15"];
 export function GrindBarcodes({grinds,error,retry}:{grinds:GrindLookup[];error:string;retry:()=>Promise<void>}) {
-  const items=primary.flatMap(value=>grinds.filter(g=>g.grind_value===value));
+  const items=primary.flatMap(value=>grinds.filter((g):g is GrindLookup & {barcode:string}=>g.grind_value===value&&!!g.barcode));
   return <section className="stack" aria-label="บาร์โค้ดเบอร์บด">
     <h3>บาร์โค้ดเบอร์บด — สแกนจากจอ</h3>
     <small>สแกนสินค้าก่อนเลือกเบอร์บด · เครื่องสแกนต้องรองรับการอ่านจากจอ</small>

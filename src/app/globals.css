@@ -83,8 +83,37 @@ a { color: inherit; }
 .admin-main { padding: 1rem; min-width: 0; }
 .empty { color: var(--muted); text-align: center; padding: 2rem; }
 
+/* Operational screens: lists may scroll, primary actions stay in view. */
+.operational-shell { height: 100dvh; min-height: 0; display: flex; flex-direction: column; }
+.operational-shell > .topbar { flex-shrink: 0; }
+.operational-shell > main { flex: 1; min-height: 0; }
+.operational-shell .input, .operational-shell .select { border-color: var(--muted); }
+.packing-layout, .counter-layout { grid-template-columns: minmax(0, 1fr) 380px; }
+.packing-queue, .packing-detail, .counter-composer, .order-monitor { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: .65rem; }
+.packing-queue h2, .packing-detail h2, .order-monitor h2 { margin: 0; }
+.packing-queue > .data-table-wrap { flex: 1; min-height: 0; overflow: auto; }
+.packing-queue { overflow: auto; }
+.packing-detail { overflow: hidden; }
+.detail-content, .composer-content, .monitor-list { flex: 1; min-height: 0; overflow: auto; overflow-wrap: anywhere; }
+.detail-content { display: flex; flex-direction: column; gap: .6rem; }
+.detail-content .product-name { font-size: 1.1rem; }
+.detail-content .button[aria-pressed="true"] { background: var(--brand-strong); color: var(--surface); }
+.detail-actions { flex-shrink: 0; display: grid; gap: .4rem; border-top: 1px solid var(--border); padding-top: .6rem; }
+.detail-actions .notice { max-height: 5rem; overflow: auto; }
+.counter-composer > .sticky-actions { flex-shrink: 0; position: static; }
+.composer-content { align-content: start; }
+.monitor-list { display: flex; flex-direction: column; gap: .65rem; }
+.monitor-list > section { flex-shrink: 0; }
+.monitor-list .row { margin-top: .4rem; }
+.barcode-drawer { flex-shrink: 0; max-height: 38vh; overflow: auto; }
+.barcode-drawer > summary { cursor: pointer; color: var(--brand-strong); font-weight: 600; padding: .25rem; }
+.barcode-drawer .stack { align-content: start; }
+
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }
+  .packing-layout { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .packing-detail { order: -1; }
+  .counter-layout { grid-template-rows: minmax(0, 2fr) minmax(0, 1fr); }
   .admin-layout { grid-template-columns: 1fr; }
   .admin-nav { border-right: 0; border-bottom: 1px solid var(--border); display: flex; gap: .25rem; overflow-x: auto; }
   .admin-nav a { white-space: nowrap; }

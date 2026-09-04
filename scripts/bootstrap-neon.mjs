@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { randomBytes, createHash } from 'node:crypto';
 import { Client } from 'pg';
 import { hashPassword } from '../src/lib/password.ts';
@@ -34,6 +34,13 @@ try {
  } else {
    const current=(await client.query("select checksum from coffee.schema_migrations where version='001_neon'")).rows[0];
    if(current?.checksum!==checksum)throw new Error('Existing schema migration checksum mismatch; refusing changes');
+ }
+ for(const file of (await readdir('database/migrations')).filter(f=>f.endsWith('.sql')&&f!=='001_neon.sql').sort()){
+   const sql=(await readFile('database/migrations/'+file,'utf8')).replace(/\r\n/g,'\n');
+   const digest=createHash('sha256').update(sql).digest('hex'),version=file.slice(0,-4);
+   const previous=(await client.query('select checksum from coffee.schema_migrations where version=$1',[version])).rows[0];
+   if(previous){if(previous.checksum!==digest)throw new Error('Migration checksum mismatch: '+version);continue;}
+   await client.query(sql);await client.query('insert into coffee.schema_migrations(version,checksum) values ($1,$2)',[version,digest]);
  }
  const seeded=(await client.query("select version from coffee.schema_migrations where version='seed_catalog_v1'")).rowCount;
  if(!seeded){

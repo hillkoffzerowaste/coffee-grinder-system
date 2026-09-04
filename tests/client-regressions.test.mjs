@@ -168,6 +168,24 @@ test('Thai layout scanner digit positions preserve numeric barcode and leading z
   } finally {await unmount();globalThis.fetch=originalFetch;}
 });
 
+test('packing can select matching grind without scanning and rejects a different grind',async()=>{
+ const originalFetch=globalThis.fetch;const calls=[];
+ let job={id:'job-1',queue_seq:1,status:'CLAIMED',product_name_snapshot:'Coffee',sku_snapshot:'RB-HK-TEST',size_grams_snapshot:200,grind_value_snapshot:'6',product_barcode_snapshot:product.barcode};
+ globalThis.fetch=async(url,init)=>{
+  if(url==='/api/jobs')return json({jobs:[job],queuedCount:0});
+  if(url==='/api/catalog/options')return json({grinds:[grind,{...grind,id:'wrong',grind_value:'8',barcode:'990008'}],grinders:[{id:profile.id,name:'Operator'}]});
+  if(url.includes('/transition')){calls.push(JSON.parse(init.body));job={...job,status:'GRINDING'};return json({job});}
+  throw new Error('No scan endpoint should be called');
+ };
+ const unmount=await mount(PackingWorkspace);
+ try{
+  await clickText('เปิดงาน');await clickText('เบอร์ 8');await clickText('เริ่มบด');assert.equal(calls.length,0);
+  await clickText('เบอร์ 6');
+  await act(async()=>{const e=document.getElementById('grinder');e.value=profile.id;e.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  await clickText('เริ่มบด');assert.equal(calls.length,1);assert.equal(calls[0].grindId,grind.id);assert.equal(calls[0].nextStatus,'GRINDING');
+ }finally{await unmount();globalThis.fetch=originalFetch;}
+});
+
 test('failed grind rescan clears prior verification and cannot start grinding',async()=>{
   const originalFetch=globalThis.fetch;let scans=0,transitions=0;
   const job={id:'job-1',queue_seq:1,status:'CLAIMED',product_name_snapshot:'Coffee',sku_snapshot:'RB-HK-TEST',size_grams_snapshot:200,grind_value_snapshot:'6',product_barcode_snapshot:product.barcode};
@@ -183,7 +201,7 @@ test('failed grind rescan clears prior verification and cannot start grinding',a
     assert.ok(document.body.textContent.includes('ตรวจเบอร์บดแล้ว'));
     await act(async()=>{const el=document.getElementById('grinder');el.value='operator-1';el.dispatchEvent(new dom.window.Event('change',{bubbles:true}))});
     await scan('packing-scan','999999');
-    assert.ok(document.body.textContent.includes('รอสแกนเบอร์บด'));
+    assert.ok(document.body.textContent.includes('เลือกเบอร์บดด้านล่าง หรือสแกนบาร์โค้ด'));
     await clickText('เริ่มบด');assert.equal(transitions,0);
   } finally {await unmount();globalThis.fetch=originalFetch;}
 });

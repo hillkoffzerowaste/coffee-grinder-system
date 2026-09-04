@@ -23,7 +23,7 @@ export interface ProductLookup {
 export interface GrindLookup {
   id: string;
   grind_value: string;
-  barcode: string;
+  barcode: string | null;
 }
 
 export interface DraftLine {

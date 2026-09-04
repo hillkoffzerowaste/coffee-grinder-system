@@ -8,7 +8,10 @@ test('database migrations and operational invariants', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
   await db.exec(await readFile('database/migrations/001_neon.sql','utf8'));
+  await db.exec(await readFile('database/migrations/002_manual_grinds.sql','utf8'));
   await db.exec('set search_path=coffee,pg_catalog');
+  assert.equal((await db.query('select * from coffee.grind_size_codes')).rows.length,13);
+  assert.equal((await db.query('select * from coffee.grind_size_codes where barcode is null')).rows.length,8);
   const counter = randomUUID(), packer = randomUUID(), other = randomUUID(), admin = randomUUID();
   for (const [id, name, role, station] of [[counter,'counter','counter','counter'],[packer,'packer','packer','packing'],[other,'other','packer','packing'],[admin,'admin','admin','packing']]) {
     await db.query("insert into coffee.accounts(id,password_hash) values ($1,'fixture-only')", [id]);
@@ -27,6 +30,17 @@ test('database migrations and operational invariants', async (t) => {
     return (await db.query('select transition_bag($1,$2,$3,$4,$5) as result',[id,expected,next,grinder,grindId])).rows[0].result;
   }
   let order, bags;
+  await t.test('manual dropdown accepts all 5–17 without barcodes and keeps idempotency',async()=>{
+    await db.exec('begin');
+    try{
+      await as(counter);
+      for(const g of (await db.query('select * from coffee.grind_size_codes')).rows){
+        const key=randomUUID(),manual=[{...lines[0],grindId:g.id,grindBarcode:null,quantity:1}];
+        const result=await create(key,manual);assert.equal((await create(key,manual)).id,result.id);
+        assert.equal((await db.query('select grind_value_snapshot from coffee.bags where order_id=$1',[result.id])).rows[0].grind_value_snapshot,g.grind_value);
+      }
+    }finally{await db.exec('rollback');}
+  });
   await t.test('one order creates one job and print job per bag; retry is idempotent', async () => {
     await as(counter); const key = randomUUID(); order = await create(key);
     assert.equal(order.total_bags,2); assert.equal((await create(key)).id,order.id);

@@ -1,0 +1,10 @@
+# Operational UI update — 2026-09-04
+
+- Packing can verify a grind by selecting it, without scanner hardware. Five primary buttons remain (6/8/10/12/15), plus a separate dropdown from 5 through 17. A mismatched grind cannot start the selected job; the existing SQL function still enforces the expected grind id and operator.
+- Order-entry dropdowns also support all 13 values. Manual selection sends an explicit null grind barcode. Missing barcode fields remain invalid; non-null scan values must still match. Migration `002_manual_grinds.sql` makes the catalog barcode nullable and creates eight new dropdown-only entries, preserving existing codes and IDs. Previously stored order/retry payloads remain compatible.
+- Admin can maintain grind entries without a barcode by leaving the barcode field empty. No new barcode is invented for dropdown-only values.
+- Counter monitoring polls every 2 seconds, showing per-status counts, selected-order bag details, grinder names, and a status-event timeline. This is near-real-time polling, not a WebSocket guarantee. Disconnection is visible; requests do not overlap. The summary prioritizes open orders within the 50-order limit; selected detail can show up to the existing 500-bag order limit.
+- Packing action buttons are outside the scrolling detail region. Counter confirmation is outside the scrolling composer region. Queue, history and large content scroll inside their panels; barcode images are available in a collapsible drawer so they do not push actions below the viewport. Colors and components follow the existing project design; no new palette was introduced.
+- Queue alarm continues every 3 seconds while unclaimed bags exist. See `BARCODE-SOUND-VERIFICATION.md`.
+
+Verification: 35 automated tests, TypeScript, ESLint and production build. Browser checks cover five scannable images, 13 dropdown choices, manual grind validation, all packing action transitions with buttons inside the viewport, and automatically changing counter summary/detail. Browser workflow responses are fixtures; temporary test credentials are removed. No customer orders or passwords are modified by these checks.

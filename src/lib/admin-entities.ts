@@ -24,7 +24,7 @@ const name = z.string().trim().min(1).max(300);
 const schemas = {
   products: z.object({ sku: name, name, size_grams: z.number().int().min(200), unit: name.optional(), product_type: z.literal("BEANS").optional(), active: z.boolean().optional() }),
   product_barcodes: z.object({ product_id: z.uuid(), barcode: z.string().regex(/^\d{4,32}$/), barcode_type: z.literal("PRODUCT").optional(), active: z.boolean().optional() }),
-  grind_size_codes: z.object({ grind_value: name, barcode: z.string().regex(/^\d{1,32}$/), sort_order: z.number().int().optional(), active: z.boolean().optional() }),
+  grind_size_codes: z.object({ grind_value: name, barcode: z.string().regex(/^\d{1,32}$/).nullable(), sort_order: z.number().int().optional(), active: z.boolean().optional() }),
   grinder_users: z.object({ name, sort_order: z.number().int().optional(), active: z.boolean().optional() }),
   app_settings: z.object({ key: name, value: z.json(), description: z.string().max(1000).nullable().optional() }),
 };

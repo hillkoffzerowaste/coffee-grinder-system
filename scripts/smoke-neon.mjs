@@ -10,7 +10,7 @@ for(const account of accounts){
  assert.equal(login.status,200,`${account.username} login`);
  const cookie=login.headers.get('set-cookie')?.split(';')[0];assert.ok(cookie);
  const options=await fetch(base+'/api/catalog/options',{headers:{cookie}});assert.equal(options.status,200);
- assert.equal((await options.json()).grinds.length,5);
+ const catalog=await options.json();assert.equal(catalog.grinds.length,13);assert.equal(catalog.grinds.filter(g=>g.barcode).length,5);
  const products=await fetch(base+'/api/admin/products',{headers:{cookie}});
  assert.equal(products.status,account.username==='admin'?200:403);
  if(products.status===200)assert.equal((await products.json()).items.length,139);

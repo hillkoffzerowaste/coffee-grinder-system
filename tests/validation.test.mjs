@@ -1,11 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { orderSchema, loginSchema, transitionSchema } from '../src/lib/validation.ts';
+import { orderSchema, loginSchema, transitionSchema, pendingOrderSchema } from '../src/lib/validation.ts';
+import {dropdownGrinds} from '../src/lib/grind-options.ts';
 import { canUseStation } from '../src/lib/permissions.ts';
 
 const line = { clientLineId:'one', productId:randomUUID(), productBarcode:'001234567890123456789', grindId:randomUUID(), grindBarcode:'990006', quantity:1 };
 const order = { clientRequestId:randomUUID(), source:'COUNTER', lines:[line] };
+test('manual grind has explicit null barcode and survives persisted retry validation',()=>{
+ const manual={...order,lines:[{...line,grindBarcode:null}]};
+ assert.equal(orderSchema.safeParse(manual).success,true);
+ const draft={clientLineId:line.clientLineId,quantity:1,product:{id:line.productId,sku:'TEST',name:'Beans',size_grams:200,unit:'bag',barcode:line.productBarcode},grind:{id:line.grindId,grind_value:'17',barcode:null}};
+ assert.equal(pendingOrderSchema.safeParse({body:JSON.stringify(manual),lines:[draft]}).success,true);
+ assert.equal(orderSchema.safeParse({...manual,lines:[{...line,grindBarcode:undefined}]}).success,false);
+ assert.deepEqual(dropdownGrinds(Array.from({length:20},(_,i)=>({id:String(i),grind_value:String(i),barcode:null}))).map(g=>g.grind_value),Array.from({length:13},(_,i)=>String(i+5)));
+});
 test('numeric barcode retains leading zeros and digits beyond JS safe integer', () => {
   assert.equal(orderSchema.parse(order).lines[0].productBarcode,line.productBarcode);
 });
