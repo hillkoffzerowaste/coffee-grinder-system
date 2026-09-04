@@ -109,11 +109,6 @@ a { color: inherit; }
 .monitor-list .row { margin-top: .4rem; }
 .barcode-drawer { flex-shrink: 0; max-height: 38vh; overflow: auto; }
 .barcode-drawer .stack { align-content: start; }
-.packing-home { width: min(1500px, 100%); margin: 0 auto; padding: 1rem; }
-.packing-barcode-home { min-height: 0; display: grid; gap: .75rem; }
-.queue-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 1rem; background: rgb(6 35 34 / .55); }
-.queue-modal-window { width: min(1500px, 100%); height: min(860px, calc(100dvh - 2rem)); }
-.queue-modal-window > .packing-layout { height: 100%; }
 .queue-summary { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; margin-top: .55rem; }
 .queue-summary strong { color: var(--brand-strong); }
 .overdue-queue-warning { margin-top: .55rem; border-width: 2px; font-weight: 700; }
