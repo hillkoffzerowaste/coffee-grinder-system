@@ -120,13 +120,12 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
     finally { operation.current = false; setBusy(false); }
   }
 
-  return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace station-workspace">
-    <section className="panel barcode-hero"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
-    <div className="grid packing-layout">
+  return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace grid packing-layout">
     <section className="panel packing-queue">
       <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
       <div className="row"><h2>คิวงานบด</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy} onClick={() => { if (operation.current) return; setFilter(""); selectJob(null); setVerifiedGrind(null); }}>แสดงทุกงาน</button></div>
       <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{job?.status === "CLAIMED" ? `สแกนเบอร์บด ${job.grind_value_snapshot}` : "สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy} /></form>
+      <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
       <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th></th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>#{item.queue_seq}</td><td>{item.product_name_snapshot}<br /><small>{item.sku_snapshot}</small></td><td>{item.size_grams_snapshot} g</td><td>{item.grind_value_snapshot}</td><td><span className="status">{jobStatusLabels[item.status]}</span></td><td><button className="button secondary" disabled={busy} onClick={() => selectJob(item.id)}>เปิดงาน</button></td></tr>)}</tbody></table>{!visible.length && <div className="empty">ไม่มีงานในคิวนี้</div>}</div>
       <small>อัปเดตล่าสุด {lastSync || "กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
     </section>
@@ -155,6 +154,5 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
         <small>รอรับ {queuedCount} ถุง · เสียงเตือนดังซ้ำทุก 3 วินาที จนงานรอรับทั้งระบบเหลือ 0 ถุง</small>
       </div>
     </aside>
-    </div>
   </main></div>;
 }

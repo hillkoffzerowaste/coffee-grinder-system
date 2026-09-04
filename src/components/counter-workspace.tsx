@@ -130,9 +130,7 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
 
   return <div className="app-shell operational-shell">
     <Topbar title={source === "COUNTER" ? "หน้าร้าน" : "เปิดออเดอร์ห้องแพ็ค"} profile={profile} />
-    <main id="main" tabIndex={-1} className="workspace station-workspace">
-      <section className="panel barcode-hero"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
-      <div className="grid counter-layout">
+    <main id="main" tabIndex={-1} className="workspace grid counter-layout">
       <section className="panel counter-composer"><div className="composer-content stack">
         <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
         <h2>{!product ? "1. สแกนบาร์โค้ดสินค้า" : !grind ? "2. สแกนบาร์โค้ดเบอร์บด" : "3. เลือกจำนวน"}</h2>
@@ -140,6 +138,7 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
           <label htmlFor="scan">{product ? "Grind Barcode — สแกนซ้ำเพื่อเปลี่ยนเบอร์ได้" : "Product Barcode"}</label>
           <input ref={scanRef} id="scan" className="input scan-input" autoFocus inputMode="numeric" autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy || awaitingRetry} placeholder={product ? "สแกนเบอร์บด" : "สแกนเลขบาร์โค้ดสินค้า"} />
         </form>
+        <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
         {error && <div role="alert" className="notice error">{error}</div>}
         {message && <div role="status" className="notice success">{message}</div>}
         {product && <>
@@ -155,7 +154,6 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
         </div><div className="sticky-actions"><strong>รวม {total} ถุง</strong><button className="button large" disabled={!lines.length || busy || !!product} onClick={() => void confirmOrder()}>{busy ? "กำลังบันทึก..." : `ยืนยัน ${total} ถุง · F10`}</button></div>
       </section>
       <OrderMonitor revision={monitorRevision} />
-      </div>
     </main>
   </div>;
 }

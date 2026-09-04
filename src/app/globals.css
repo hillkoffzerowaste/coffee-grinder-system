@@ -89,8 +89,7 @@ a { color: inherit; }
 .operational-shell > main { flex: 1; min-height: 0; }
 .operational-shell .input, .operational-shell .select { border-color: var(--muted); }
 .operational-shell .button:not(.secondary):not(.danger) { background: var(--brand-strong); }
-.station-workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 1rem; overflow: auto; }
-.packing-layout, .counter-layout { grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+.packing-layout, .counter-layout { grid-template-columns: minmax(0, 1fr) 380px; }
 .packing-queue, .packing-detail, .counter-composer, .order-monitor { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: .65rem; }
 .packing-queue h2, .packing-detail h2, .order-monitor h2 { margin: 0; }
 .packing-queue > .data-table-wrap { flex: 1; min-height: 0; overflow: auto; }
@@ -107,12 +106,8 @@ a { color: inherit; }
 .monitor-list { display: flex; flex-direction: column; gap: .65rem; }
 .monitor-list > section { flex-shrink: 0; }
 .monitor-list .row { margin-top: .4rem; }
-.barcode-hero { width: 100%; overflow: visible; }
-.barcode-hero .stack { gap: .5rem; }
-.barcode-hero h3 { margin-bottom: 0; }
-.grind-barcode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; width: 100%; }
-.grind-barcode-grid figure { display: grid; gap: .35rem; align-content: start; }
-.grind-barcode-grid svg { width: 100%; }
+.barcode-drawer { flex-shrink: 0; max-height: 38vh; overflow: auto; }
+.barcode-drawer .stack { align-content: start; }
 .queue-summary { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; margin-top: .55rem; }
 .queue-summary strong { color: var(--brand-strong); }
 .overdue-queue-warning { margin-top: .55rem; border-width: 2px; font-weight: 700; }
