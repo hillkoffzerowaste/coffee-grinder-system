@@ -88,6 +88,7 @@ a { color: inherit; }
 .operational-shell > .topbar { flex-shrink: 0; }
 .operational-shell > main { flex: 1; min-height: 0; }
 .operational-shell .input, .operational-shell .select { border-color: var(--muted); }
+.operational-shell .button:not(.secondary):not(.danger) { background: var(--brand-strong); }
 .packing-layout, .counter-layout { grid-template-columns: minmax(0, 1fr) 380px; }
 .packing-queue, .packing-detail, .counter-composer, .order-monitor { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: .65rem; }
 .packing-queue h2, .packing-detail h2, .order-monitor h2 { margin: 0; }
