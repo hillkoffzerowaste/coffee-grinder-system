@@ -3,8 +3,9 @@ import {useEffect,useRef,useState} from "react";
 import {apiFetch} from "@/lib/api";
 import {jobStatusLabels} from "@/lib/job-status";
 import type {JobStatus} from "@/lib/types";
-type Summary={id:string;order_no:string;total_bags:number;status:string;progress?:Partial<Record<JobStatus,number>>};
+type Summary={id:string;order_no:string;total_bags:number;status:string;queued_count:number;active_count:number;completed_count:number;oldest_queued_at:string|null;overdue_queued_count:number;progress?:Partial<Record<JobStatus,number>>};
 type Bag={id:string;bag_no:number;status:JobStatus;product_name_snapshot:string;size_grams_snapshot:number;grind_value_snapshot:string;grinder_name_snapshot:string|null;events:{status:JobStatus;at:string}[]};
+function waitMinutes(oldestQueuedAt:string|null){return oldestQueuedAt?Math.max(0,Math.floor((Date.now()-new Date(oldestQueuedAt).getTime())/60000)):0;}
 export function OrderMonitor({revision}:{revision:number}){
  const [orders,setOrders]=useState<Summary[]>([]),[selected,setSelected]=useState("");
  const [bags,setBags]=useState<Bag[]>([]),[error,setError]=useState(""),[updated,setUpdated]=useState("");
@@ -29,6 +30,8 @@ export function OrderMonitor({revision}:{revision:number}){
   {error&&<div className="notice error" role="alert">{error}</div>}
   <div className="monitor-list">{orders.map(order=><section className="notice" key={order.id}>
    <button className="button secondary" type="button" aria-expanded={selected===order.id} onClick={()=>{setBags([]);setSelected(selected===order.id?"":order.id);}}>{order.order_no} · {order.total_bags} ถุง</button>
+   <div className="queue-summary" aria-label={`สรุปคิว ${order.order_no}`}><strong>รอรับ {order.queued_count} ถุง</strong><span>กำลังทำ {order.active_count} ถุง</span><span>เสร็จ {order.completed_count} ถุง</span><span>ค้างนานสุด {waitMinutes(order.oldest_queued_at)} นาที</span></div>
+   {order.overdue_queued_count>0&&<div className="notice error overdue-queue-warning" role="alert">มี {order.overdue_queued_count} ถุงรอรับเกิน 1 นาที — โปรดรับงานทันที</div>}
    <div className="row" aria-label={`สถานะ ${order.order_no}`}>{Object.entries(order.progress??{}).map(([status,count])=><span className="status" key={status}>{jobStatusLabels[status as JobStatus]||status} {count}</span>)}</div>
    {selected===order.id&&<div className="stack">{!bags.length&&<small>กำลังโหลดรายละเอียด...</small>}{bags.map(bag=><div className="notice" key={bag.id}>
     <strong>ถุง {bag.bag_no} · {jobStatusLabels[bag.status]}</strong>

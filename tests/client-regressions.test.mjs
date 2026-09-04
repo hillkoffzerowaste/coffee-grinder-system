@@ -10,6 +10,7 @@ const { createRoot } = await import('react-dom/client');
 const { AppRouterContext } = await import('next/dist/shared/lib/app-router-context.shared-runtime.js');
 const { CounterWorkspace } = await import('../src/components/counter-workspace.tsx');
 const { PackingWorkspace } = await import('../src/components/packing-workspace.tsx');
+const { OrderMonitor } = await import('../src/components/order-monitor.tsx');
 const { AdminPasswordReset } = await import('../src/components/admin-password-reset.tsx');
 const {barcodeBits}=await import('../src/lib/barcode.ts');
 const {useQueueAlarm}=await import('../src/lib/use-queue-alarm.ts');
@@ -86,8 +87,9 @@ test('visible barcodes in both stations and sound scan/error/mute are functional
   if(url.startsWith('/api/catalog/product/'))return url.endsWith('9999')?json({error:'Unknown'},404):json({product});
   return json({orders:[],jobs:[]});
  };
- let unmount=await mount(CounterWorkspace);
- try {
+  let unmount=await mount(CounterWorkspace);
+  try {
+  assert.equal(document.querySelector('main > .barcode-hero')?.firstElementChild?.getAttribute('aria-label'),'บาร์โค้ดเบอร์บด','counter puts the barcode panel first and full width');
   assert.equal(document.querySelector('details.barcode-drawer'),null,'counter keeps grind barcodes visible without a disclosure');
   assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);
   assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.deepEqual(tones,[880]);assert.ok(gains.includes(1),'alert tone reaches full Web Audio volume');assert.equal(document.activeElement?.id,'scan','counter restores scan focus after an action');
@@ -95,8 +97,24 @@ test('visible barcodes in both stations and sound scan/error/mute are functional
   await scan('scan',product.barcode);assert.equal(tones.at(-1),880);
   await clickText('ปิดเสียง');const count=tones.length;
   await clickText('ยกเลิกรายการนี้');await scan('scan','9999');assert.equal(tones.length,count);
-  await unmount();unmount=await mount(PackingWorkspace);assert.equal(document.querySelector('details.barcode-drawer'),null,'packing keeps grind barcodes visible without a disclosure');assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);await clickText('แสดงทุกงาน');assert.equal(document.activeElement?.id,'packing-scan','packing restores scan focus after an action');
+  await unmount();unmount=await mount(PackingWorkspace);assert.equal(document.querySelector('main > .barcode-hero')?.firstElementChild?.getAttribute('aria-label'),'บาร์โค้ดเบอร์บด','packing puts the barcode panel first and full width');assert.equal(document.querySelector('details.barcode-drawer'),null,'packing keeps grind barcodes visible without a disclosure');assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);assert.ok(document.body.textContent.includes('จนงานรอรับทั้งระบบเหลือ 0 ถุง'),'packing clearly explains when the repeating alarm stops');await clickText('แสดงทุกงาน');assert.equal(document.activeElement?.id,'packing-scan','packing restores scan focus after an action');
  }finally{await unmount();globalThis.fetch=originalFetch;window.AudioContext=originalAudio;}
+});
+
+test('order monitor shows queued wait summary and overdue warning',async()=>{
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(url)=>{
+  if(url==='/api/orders')return json({orders:[{id:'order-1',order_no:'HK-001',total_bags:4,status:'OPEN',queued_count:2,active_count:1,completed_count:1,oldest_queued_at:new Date(Date.now()-121000).toISOString(),overdue_queued_count:1,progress:{QUEUED:2,GRINDING:1,COMPLETED:1}}]});
+  return json({bags:[]});
+ };
+ const unmount=await mount(OrderMonitor);
+ try {
+  await act(async()=>{});
+  assert.ok(document.body.textContent.includes('รอรับ 2 ถุง'));
+  assert.ok(document.body.textContent.includes('ค้างนานสุด 2 นาที'));
+  assert.ok(document.body.textContent.includes('มี 1 ถุงรอรับเกิน 1 นาที'));
+  assert.equal(document.querySelector('[role="alert"]')?.textContent.includes('เกิน 1 นาที'),true);
+ } finally {await unmount();globalThis.fetch=originalFetch;}
 });
 
 test('admin reset validates confirmation, blocks duplicate submits and clears secrets',async()=>{

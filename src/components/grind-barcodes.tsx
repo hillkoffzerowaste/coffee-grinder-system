@@ -8,7 +8,7 @@ export function GrindBarcodes({grinds,error,retry}:{grinds:GrindLookup[];error:s
     <h3>บาร์โค้ดเบอร์บด — สแกนจากจอ</h3>
     <small>สแกนสินค้าก่อนเลือกเบอร์บด · เครื่องสแกนต้องรองรับการอ่านจากจอ</small>
     {error && <div className="notice error" role="alert">{error} <button type="button" className="button secondary" onClick={()=>void retry()}>โหลดเบอร์บดใหม่</button></div>}
-    <div className="row">{items.map(grind=>{
+    <div className="grind-barcode-grid">{items.map(grind=>{
       const bits=barcodeBits(grind.barcode),width=(bits.length+20)*2;
       return <figure className="panel stack" key={grind.id} style={{margin:0,maxWidth:"100%",minWidth:0}}>
         <strong>เบอร์ {grind.grind_value}</strong>
