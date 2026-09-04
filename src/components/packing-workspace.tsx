@@ -31,7 +31,6 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const [queuedCount,setQueuedCount]=useState(0);
   const [queueOpen,setQueueOpen]=useState(false);
   const knownQueuedRef=useRef(new Set<string>());
-  const reopenQueueAfterCompletionRef=useRef(false);
   const queueRequest=useRef(0);
   const invalidateQueue=useCallback(()=>{++queueRequest.current;},[]);
   useQueueAlarm(queuedCount>0,sound.enabled,play);
@@ -59,8 +58,7 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
     knownQueuedRef.current=new Set(queued.map(job=>job.id));
     setQueuedCount(result.queuedCount??queued.length);
     const selectedJob=result.jobs.find(job=>job.id===selectedRef.current);
-    if((hasNewQueued||reopenQueueAfterCompletionRef.current||result.jobs.some(job=>["CLAIMED","GRINDING"].includes(job.status)))&&!(selectedJob&&["CLAIMED","GRINDING"].includes(selectedJob.status)))setQueueOpen(true);
-    reopenQueueAfterCompletionRef.current=false;
+    if((hasNewQueued||result.jobs.some(job=>["CLAIMED","GRINDING"].includes(job.status)))&&!(selectedJob&&["CLAIMED","GRINDING"].includes(selectedJob.status)))setQueueOpen(true);
     setJobs(result.jobs);setLastSync(new Date().toLocaleTimeString("th-TH"));
   },[]);
   const load = useCallback(async () => {
@@ -122,9 +120,8 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
     operation.current = true; setBusy(true); setError("");
     try {
       await apiFetch(`/api/jobs/${job.id}/transition`, { method: "POST", body: JSON.stringify({ expectedStatus: job.status, nextStatus: action.next, grinderUserId: grinderId || undefined, grindId: verifiedGrind?.id }) });
-      play("success");
-      if (action.next === "COMPLETED") { selectedRef.current = null; setSelected(null); setFilter(""); setVerifiedGrind(null); reopenQueueAfterCompletionRef.current=true; }
-      await load();
+      play("success");await load();
+      if (action.next === "COMPLETED") { selectedRef.current = null; setSelected(null); setFilter(""); setVerifiedGrind(null); }
       scanRef.current?.focus();
     } catch (error) { play("error");setError(error instanceof Error ? error.message : "เปลี่ยนสถานะไม่สำเร็จ"); }
     finally { operation.current = false; setBusy(false); }
