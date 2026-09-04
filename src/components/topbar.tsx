@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Profile } from "@/lib/types";
+import { apiFetch } from "@/lib/api";
 
 export function Topbar({ title, profile }: { title: string; profile: Profile }) {
   const router = useRouter();
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try { await apiFetch("/api/auth/logout", { method: "POST" }); }
+    catch { window.alert("ออกจากระบบไม่สำเร็จ กรุณาลองใหม่"); return; }
     router.replace("/login");
     router.refresh();
   }

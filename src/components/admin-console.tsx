@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Topbar } from "@/components/topbar";
 import { apiFetch } from "@/lib/api";
 import type { Profile } from "@/lib/types";
@@ -26,10 +26,15 @@ export function AdminConsole({ profile }: { profile: Profile }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const operation = useRef(false);
+  const entityRef = useRef<Entity>("products");
   const load = useCallback(async () => {
     setError("");
-    try { setItems((await apiFetch<{ items: Row[] }>(`/api/admin/${entity}`)).items); }
-    catch (error) { setError(error instanceof Error ? error.message : "โหลดไม่สำเร็จ"); }
+    try {
+      const result = await apiFetch<{ items: Row[] }>(`/api/admin/${entity}`);
+      if (entityRef.current === entity) setItems(result.items);
+    }
+    catch (error) { if (entityRef.current === entity) setError(error instanceof Error ? error.message : "โหลดไม่สำเร็จ"); }
   }, [entity]);
   useEffect(() => {
     let active = true;
@@ -40,9 +45,14 @@ export function AdminConsole({ profile }: { profile: Profile }) {
     });
     return () => { active = false; };
   }, [entity]);
-  function selectEntity(value: Entity) { setEntity(value); setForm({ active: true }); setEditingId(null); setSearch(""); setMessage(""); }
+  function selectEntity(value: Entity) {
+    if (operation.current || value === entityRef.current) return;
+    entityRef.current = value; setEntity(value); setItems([]); setError(""); setForm({ active: true }); setEditingId(null); setSearch(""); setMessage("");
+  }
   async function save(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    event.preventDefault();
+    if (operation.current) return;
+    operation.current = true; setBusy(true); setError(""); setMessage("");
     try {
       const payload = { ...form };
       for (const field of ["size_grams", "sort_order"]) if (field in payload) payload[field] = Number(payload[field]);
@@ -50,12 +60,15 @@ export function AdminConsole({ profile }: { profile: Profile }) {
       await apiFetch(`/api/admin/${entity}${editingId ? `/${editingId}` : ""}`, { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
       setMessage("บันทึกสำเร็จ"); setForm({ active: true }); setEditingId(null); await load();
     } catch (error) { setError(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ"); }
-    finally { setBusy(false); }
+    finally { operation.current = false; setBusy(false); }
   }
   async function deactivate(id: string) {
+    if (operation.current) return;
     if (!confirm("ปิดใช้งานรายการนี้? ประวัติเก่าจะยังคงอยู่")) return;
+    operation.current = true; setBusy(true);
     try { await apiFetch(`/api/admin/${entity}/${id}`, { method: "DELETE" }); await load(); }
     catch (error) { setError(error instanceof Error ? error.message : "ปิดใช้งานไม่สำเร็จ"); }
+    finally { operation.current = false; setBusy(false); }
   }
   const visible = items.filter((item) => JSON.stringify(item).toLowerCase().includes(search.toLowerCase()));
   return <div className="app-shell"><Topbar title="Admin Console" profile={profile} /><main id="main" tabIndex={-1} className="admin-layout">

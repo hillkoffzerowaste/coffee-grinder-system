@@ -3,15 +3,46 @@
 ## Scope
 
 Local automated checks only. No production database or product data was modified.
-There is no `.env.local` in this project, so real Supabase login/session behaviour,
+Supabase connection values are not configured, so real Supabase login/session behaviour,
 physical scanners, printers and multi-client concurrency remain unverified.
 
 ## Reproduce
 
-Results: test runner reports 19 passed / 0 failed (including the database parent
+Results: latest test runner reports 25 passed / 0 failed (including the database parent
 test); lint, TypeScript and production build pass. Production HTTP smoke checks
 pass for login rendering (200), invalid login payload/JSON rejection (400), and
-root redirect. Node emits a non-fatal module-type inference warning for TS imports.
+root redirect. The test runner uses tsx for TypeScript and React component tests.
+
+## Follow-up review
+
+- Synchronous operation guards prevent duplicate login, order and job submissions
+  before React has rendered a disabled button.
+- Ambiguous order responses freeze edits and preserve the exact request key/body.
+  Session storage preserves pending orders across reload; retries use the original
+  payload. Product names, weights and quantities are restored from validated data.
+- A failed grind rescan clears previous verification. Selection changes are blocked
+  while a scan or transition is pending.
+- Scanner inputs normalize physical Digit/Numpad keys so Thai layouts retain numeric
+  barcode values and leading zeros. This is tested with DOM keyboard events; actual
+  scanner suffix/IME/hardware behaviour still requires on-device verification.
+- Admin routes reject prototype-property entity names, null/array/empty payloads,
+  invalid field types and unsupported settings deletion. Changing tabs clears old
+  rows and in-flight mutations guard against duplicate submits.
+- Protected pages redirect safely when no backend is configured. API calls return
+  a controlled 503 instead of leaking a configuration exception. Logout no longer
+  navigates away after a failed sign-out.
+- Proxy rejects cross-origin mutations and refreshes session cookies before Server
+  Components run. Auth cookies are HttpOnly and Secure in production. Supabase Auth
+  integration/session rotation remains unverified until the backend is available.
+- Migration 003 rejects NULL payloads on retries of existing order keys.
+
+React tests mount the actual CounterWorkspace and PackingWorkspace with simulated
+network responses (not a replacement application mode). A reload simulation checks
+the same order payload is retried. `node tests/production-smoke.mjs` checks the real
+production HTTP server on loopback port 3217 with missing backend configuration.
+
+No live migrations, catalog imports, physical printing or multi-session PostgreSQL
+stress tests were performed. UI layout/contrast was not changed or visually certified.
 
 Use Node.js 24, install with `npm ci`, then run:
 

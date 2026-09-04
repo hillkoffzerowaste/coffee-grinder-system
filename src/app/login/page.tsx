@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { Station } from "@/lib/types";
@@ -11,13 +11,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const submitting = useRef(false);
   async function login(station: Station) {
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true); setError("");
     try {
       const result = await apiFetch<{ destination: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password, station }) });
       router.replace(result.destination); router.refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "เข้าสู่ระบบไม่สำเร็จ"); }
-    finally { setBusy(false); }
+    finally { submitting.current = false; setBusy(false); }
   }
   return <main id="main" tabIndex={-1} className="login-page">
     <section className="panel login-card stack">

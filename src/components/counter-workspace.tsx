@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Topbar } from "@/components/topbar";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
+import { useScannerInput } from "@/lib/scanner";
+import { orderSchema, pendingOrderSchema } from "@/lib/validation";
 import type { DraftLine, GrindLookup, ProductLookup, Profile } from "@/lib/types";
 
 type OrderSummary = { id: string; order_no: string; total_bags: number; status: string; created_at: string };
@@ -10,6 +12,7 @@ type OrderSummary = { id: string; order_no: string; total_bags: number; status: 
 export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Profile; source?: "COUNTER" | "PACKING_MANUAL" }) {
   const scanRef = useRef<HTMLInputElement>(null);
   const [scan, setScan] = useState("");
+  useScannerInput(scanRef, setScan);
   const [product, setProduct] = useState<ProductLookup | null>(null);
   const [grind, setGrind] = useState<GrindLookup | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -21,6 +24,31 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const requestId = useRef<string | null>(null);
+  const operation = useRef(false);
+  const retryBody = useRef<string | null>(null);
+  const [awaitingRetry, setAwaitingRetry] = useState(false);
+  const storageKey = `coffee-pending:${profile.id}:${source}`;
+  const ready = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      try {
+        const saved = sessionStorage.getItem(storageKey);
+        if (saved) {
+          const pending = pendingOrderSchema.parse(JSON.parse(saved));
+          const parsed = orderSchema.parse(JSON.parse(pending.body));
+          if (parsed.source !== source) throw new Error("Wrong station draft");
+          retryBody.current = pending.body; requestId.current = parsed.clientRequestId;
+          setLines(pending.lines);
+          setAwaitingRetry(true);
+          setError("พบออเดอร์รอยืนยันผล กรุณากดยืนยันอีกครั้งเพื่อรับผลบันทึกเดิม");
+        }
+      } catch { setError("อ่านออเดอร์ที่ค้างไว้ไม่ได้ กรุณาตรวจออเดอร์ล่าสุดก่อนเปิดรายการใหม่"); }
+      ready.current = true;
+    });
+    return () => { active = false; };
+  }, [storageKey, source]);
   const total = lines.reduce((sum, line) => sum + line.quantity, 0);
 
   const loadOrders = useCallback(async () => {
@@ -45,8 +73,9 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
 
   async function submitScan(event: React.FormEvent) {
     event.preventDefault();
-    const value = scan.trim();
-    if (!value || busy) return;
+    const value = (scanRef.current?.value ?? scan).trim();
+    if (!value || !ready.current || operation.current || awaitingRetry) return;
+    operation.current = true;
     setBusy(true); setError(""); setMessage("");
     try {
       if (!product) {
@@ -58,11 +87,15 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
       }
       setScan("");
     } catch (error) { setError(error instanceof Error ? error.message : "สแกนไม่สำเร็จ"); }
-    finally { setBusy(false); setTimeout(() => scanRef.current?.focus(), 0); }
+    finally { operation.current = false; setBusy(false); setTimeout(() => scanRef.current?.focus(), 0); }
   }
 
   function addLine() {
-    if (!product || !grind || quantity < 1 || quantity > 99 || !Number.isInteger(quantity)) return;
+    if (operation.current || awaitingRetry || !product || !grind || quantity < 1 || quantity > 99 || !Number.isInteger(quantity)) return;
+    const remaining = lines.filter(line => line.clientLineId !== editingId);
+    if (remaining.length >= 100 || remaining.reduce((sum, line) => sum + line.quantity, quantity) > 500) {
+      setError("หนึ่งออเดอร์รองรับไม่เกิน 100 รายการ และ 500 ถุง"); return;
+    }
     const line: DraftLine = { clientLineId: editingId || crypto.randomUUID(), product, grind, quantity };
     setLines((current) => editingId ? current.map((item) => item.clientLineId === editingId ? line : item) : [...current, line]);
     requestId.current = null;
@@ -70,20 +103,30 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
   }
 
   const confirmOrder = useCallback(async () => {
-    if (!lines.length || busy || product) return;
+    if (!lines.length || operation.current || product) return;
+    operation.current = true;
     setBusy(true); setError("");
     requestId.current ||= crypto.randomUUID();
+    retryBody.current ||= JSON.stringify({ clientRequestId: requestId.current, source, lines: lines.map((line) => ({ clientLineId: line.clientLineId, productId: line.product.id, productBarcode: line.product.barcode, grindId: line.grind.id, grindBarcode: line.grind.barcode, quantity: line.quantity })) });
     try {
+      // Persist before the request so a reload cannot generate a duplicate order.
+      sessionStorage.setItem(storageKey, JSON.stringify({body:retryBody.current,lines}));
       const result = await apiFetch<{ order: { order_no: string; total_bags: number } }>("/api/orders", {
         method: "POST",
-        body: JSON.stringify({ clientRequestId: requestId.current, source, lines: lines.map((line) => ({ clientLineId: line.clientLineId, productId: line.product.id, productBarcode: line.product.barcode, grindId: line.grind.id, grindBarcode: line.grind.barcode, quantity: line.quantity })) }),
+        body: retryBody.current,
       });
       setMessage(`บันทึก ${result.order.order_no} สำเร็จ · ${result.order.total_bags} ถุง`);
-      setLines([]); requestId.current = null; void loadOrders();
+      setLines([]); requestId.current = null; retryBody.current = null; setAwaitingRetry(false); void loadOrders();
+      sessionStorage.removeItem(storageKey);
       scanRef.current?.focus();
-    } catch (error) { setError(error instanceof Error ? error.message : "ส่งออเดอร์ไม่สำเร็จ — กดซ้ำเพื่อตรวจสอบด้วยรหัสเดิม"); }
-    finally { setBusy(false); }
-  }, [lines, busy, product, source, loadOrders]);
+    } catch (error) {
+      const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500;
+      if (rejected) { requestId.current = null; retryBody.current = null; sessionStorage.removeItem(storageKey); }
+      setAwaitingRetry(!rejected);
+      setError(rejected ? error.message : "ยังยืนยันผลบันทึกไม่ได้ กรุณากดยืนยันซ้ำด้วยรายการเดิมก่อนแก้ไขออเดอร์");
+    }
+    finally { operation.current = false; setBusy(false); }
+  }, [lines, product, source, loadOrders, storageKey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "F10") { event.preventDefault(); void confirmOrder(); } };
@@ -97,7 +140,7 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
         <h2>{!product ? "1. สแกนบาร์โค้ดสินค้า" : !grind ? "2. สแกนบาร์โค้ดเบอร์บด" : "3. เลือกจำนวน"}</h2>
         <form onSubmit={submitScan} className="field">
           <label htmlFor="scan">{product ? "Grind Barcode — สแกนซ้ำเพื่อเปลี่ยนเบอร์ได้" : "Product Barcode"}</label>
-          <input ref={scanRef} id="scan" className="input scan-input" autoFocus inputMode="numeric" autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy} placeholder={product ? "สแกนเบอร์บด" : "สแกนเลขบาร์โค้ดสินค้า"} />
+          <input ref={scanRef} id="scan" className="input scan-input" autoFocus inputMode="numeric" autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy || awaitingRetry} placeholder={product ? "สแกนเบอร์บด" : "สแกนเลขบาร์โค้ดสินค้า"} />
         </form>
         {error && <div role="alert" className="notice error">{error}</div>}
         {message && <div role="status" className="notice success">{message}</div>}
@@ -105,12 +148,12 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
           <div className="product-result"><div><div className="product-name">{product.name}</div><div>{product.sku} · {product.barcode}</div></div><div className="product-size">{product.size_grams} g</div></div>
           <div className="row">
             <label htmlFor="grind-select">เบอร์อื่น:</label>
-            <select id="grind-select" className="select" style={{ width: "auto" }} value={grind?.id || ""} onChange={(event) => setGrind(grinds.find((item) => item.id === event.target.value) || null)}><option value="">เลือกเบอร์บด</option>{grinds.map((item) => <option key={item.id} value={item.id}>เบอร์ {item.grind_value}</option>)}</select>
-            <button className="button secondary" onClick={resetCurrent}>ยกเลิกรายการนี้</button>
+            <select id="grind-select" disabled={busy || awaitingRetry} className="select" style={{ width: "auto" }} value={grind?.id || ""} onChange={(event) => setGrind(grinds.find((item) => item.id === event.target.value) || null)}><option value="">เลือกเบอร์บด</option>{grinds.map((item) => <option key={item.id} value={item.id}>เบอร์ {item.grind_value}</option>)}</select>
+            <button className="button secondary" disabled={busy} onClick={resetCurrent}>ยกเลิกรายการนี้</button>
           </div>
-          {grind && <div className="row"><strong>เบอร์บด {grind.grind_value}</strong><label htmlFor="quantity">จำนวนถุง</label><input id="quantity" className="input" style={{ width: 90 }} type="number" min={1} max={99} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addLine(); } }} /><button className="button" onClick={addLine}>{editingId ? "บันทึกการแก้ไข" : "เพิ่มรายการ"}</button></div>}
+          {grind && <div className="row"><strong>เบอร์บด {grind.grind_value}</strong><label htmlFor="quantity">จำนวนถุง</label><input disabled={busy || awaitingRetry} id="quantity" className="input" style={{ width: 90 }} type="number" min={1} max={99} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addLine(); } }} /><button className="button" disabled={busy || awaitingRetry} onClick={addLine}>{editingId ? "บันทึกการแก้ไข" : "เพิ่มรายการ"}</button></div>}
         </>}
-        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>ถุง</th><th>จัดการ</th></tr></thead><tbody>{lines.map((line) => <tr key={line.clientLineId}><td>{line.product.name}<br /><small>{line.product.sku}</small></td><td>{line.product.size_grams} g</td><td>{line.grind.grind_value}</td><td>{line.quantity}</td><td><button className="button secondary" disabled={busy} onClick={() => { setProduct(line.product); setGrind(line.grind); setQuantity(line.quantity); setEditingId(line.clientLineId); scanRef.current?.focus(); }}>แก้ไข</button> <button className="button secondary" disabled={busy} onClick={() => { setLines((current) => current.filter((item) => item.clientLineId !== line.clientLineId)); requestId.current = null; }}>ลบ</button></td></tr>)}</tbody></table>{!lines.length && <div className="empty">ยังไม่มีรายการ</div>}</div>
+        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>ถุง</th><th>จัดการ</th></tr></thead><tbody>{lines.map((line) => <tr key={line.clientLineId}><td>{line.product.name}<br /><small>{line.product.sku}</small></td><td>{line.product.size_grams} g</td><td>{line.grind.grind_value}</td><td>{line.quantity}</td><td><button className="button secondary" disabled={busy || awaitingRetry} onClick={() => { if (operation.current || awaitingRetry) return; setProduct(line.product); setGrind(line.grind); setQuantity(line.quantity); setEditingId(line.clientLineId); scanRef.current?.focus(); }}>แก้ไข</button> <button className="button secondary" disabled={busy || awaitingRetry} onClick={() => { if (operation.current || awaitingRetry) return; setLines((current) => current.filter((item) => item.clientLineId !== line.clientLineId)); requestId.current = null; }}>ลบ</button></td></tr>)}</tbody></table>{!lines.length && <div className="empty">ยังไม่มีรายการ</div>}</div>
         <div className="sticky-actions"><strong>รวม {total} ถุง</strong><button className="button large" disabled={!lines.length || busy || !!product} onClick={() => void confirmOrder()}>{busy ? "กำลังบันทึก..." : `ยืนยัน ${total} ถุง · F10`}</button></div>
       </section>
       <aside className="panel stack"><h2>ออเดอร์ล่าสุด</h2>{orders.map((order) => <div key={order.id} className="notice"><strong>{order.order_no}</strong><div>{order.total_bags} ถุง · {order.status}</div><small>{new Date(order.created_at).toLocaleString("th-TH")}</small></div>)}{!orders.length && <p className="empty">ยังไม่มีออเดอร์</p>}</aside>

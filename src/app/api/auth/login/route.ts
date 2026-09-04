@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authEmail } from "@/lib/env";
+import { authEmail, hasPublicEnv } from "@/lib/env";
 import { loginSchema } from "@/lib/validation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canUseStation } from "@/lib/auth";
@@ -8,6 +8,7 @@ import type { Profile } from "@/lib/types";
 export async function POST(request: Request) {
   const parsed = loginSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง" }, { status: 400 });
+  if (!hasPublicEnv()) return NextResponse.json({ error: "ระบบยังไม่พร้อมเชื่อมต่อฐานข้อมูล กรุณาติดต่อผู้ดูแล" }, { status: 503 });
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.signInWithPassword({
     email: authEmail(parsed.data.username),

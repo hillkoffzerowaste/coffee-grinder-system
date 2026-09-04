@@ -6,6 +6,9 @@ node_modules/
 !.env.example
 *.tsbuildinfo
 .local-test-db/
+.vercel/
+supabase/.temp/
+.deployment-secrets.json
 *.log
 coverage/
 .DS_Store

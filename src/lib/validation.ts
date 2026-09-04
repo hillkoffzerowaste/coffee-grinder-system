@@ -27,3 +27,18 @@ export const transitionSchema = z.object({
   grinderUserId: z.uuid().optional(),
   grindId: z.uuid().optional(),
 });
+
+export const pendingOrderSchema = z.object({
+  body: z.string(),
+  lines: z.array(z.object({
+    clientLineId: z.string(), quantity: z.number().int().min(1).max(99),
+    product: z.object({id:z.uuid(),name:z.string(),sku:z.string(),size_grams:z.number().min(200),unit:z.string(),barcode:z.string()}),
+    grind: z.object({id:z.uuid(),barcode:z.string(),grind_value:z.string()}),
+  })).min(1).max(100),
+}).superRefine((saved,ctx) => {
+  try {
+    const order = orderSchema.parse(JSON.parse(saved.body));
+    const lines = saved.lines.map(line => ({clientLineId:line.clientLineId,productId:line.product.id,productBarcode:line.product.barcode,grindId:line.grind.id,grindBarcode:line.grind.barcode,quantity:line.quantity}));
+    if (JSON.stringify(order.lines) !== JSON.stringify(lines)) throw new Error("Draft mismatch");
+  } catch { ctx.addIssue({code:"custom",message:"Invalid pending order"}); }
+});

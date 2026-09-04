@@ -47,6 +47,7 @@ test('database migrations and operational invariants', async (t) => {
     assert.equal(bags.length,2); assert.equal(bags[0].product_barcode_snapshot,lines[0].productBarcode);
     assert.equal((await db.query('select * from print_jobs')).rows.length,2);
     await assert.rejects(create(key,[{...lines[0],quantity:3}]),/Idempotency/);
+    await assert.rejects(create(key,null),/Idempotency/);
   });
   await t.test('invalid barcode rolls back the whole order', async () => {
     await assert.rejects(create(randomUUID(),[lines[0],{...lines[0],clientLineId:'bad',productBarcode:'9999'}]),/barcode mismatch/);
