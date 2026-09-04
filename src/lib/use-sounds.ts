@@ -13,7 +13,7 @@ export function useSounds(){
       soundNotes[kind].forEach((frequency,index)=>{
         const oscillator=context.createOscillator(),gain=context.createGain(),start=context.currentTime+index*.18;
         oscillator.frequency.value=frequency;
-        gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(.15,start+.01);gain.gain.linearRampToValueAtTime(0,start+.12);
+        gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(1,start+.01);gain.gain.linearRampToValueAtTime(0,start+.12);
         oscillator.connect(gain);gain.connect(context.destination);oscillator.start(start);oscillator.stop(start+.13);
         oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
       });

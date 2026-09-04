@@ -72,12 +72,12 @@ test('Code128 barcode images decode to exact configured values including leading
 });
 
 test('visible barcodes in both stations and sound scan/error/mute are functional',async()=>{
- const originalFetch=globalThis.fetch,originalAudio=window.AudioContext;const tones=[];
+ const originalFetch=globalThis.fetch,originalAudio=window.AudioContext;const tones=[],gains=[];
  class FakeAudio {
   state='suspended';currentTime=0;destination={};
   async resume(){this.state='running';}async suspend(){this.state='suspended';}async close(){this.state='closed';}
   createOscillator(){return {frequency:{value:0},connect(){},disconnect(){},start(){tones.push(this.frequency.value);},stop(){}};}
-  createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(){}},connect(){},disconnect(){}};}
+  createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(value){gains.push(value);}},connect(){},disconnect(){}};}
  }
  window.AudioContext=FakeAudio;
  const grinds=['6','8','10','12','15'].map(v=>({...grind,id:v,grind_value:v,barcode:'990'+v.padStart(3,'0')}));
@@ -90,7 +90,7 @@ test('visible barcodes in both stations and sound scan/error/mute are functional
  try {
   assert.equal(document.querySelector('details.barcode-drawer'),null,'counter keeps grind barcodes visible without a disclosure');
   assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);
-  assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.deepEqual(tones,[880]);assert.equal(document.activeElement?.id,'scan','counter restores scan focus after an action');
+  assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.deepEqual(tones,[880]);assert.ok(gains.includes(1),'alert tone reaches full Web Audio volume');assert.equal(document.activeElement?.id,'scan','counter restores scan focus after an action');
   await scan('scan','9999');assert.deepEqual(tones.slice(-2),[220,220]);
   await scan('scan',product.barcode);assert.equal(tones.at(-1),880);
   await clickText('ปิดเสียง');const count=tones.length;
