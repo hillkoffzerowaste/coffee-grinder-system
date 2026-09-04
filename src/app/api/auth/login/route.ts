@@ -20,7 +20,7 @@ export async function POST(request: Request) {
         on conflict(key) do update set attempts=case when login_attempts.reset_at<now() then 1 else login_attempts.attempts+1 end,
         reset_at=case when login_attempts.reset_at<now() then now()+interval '10 minutes' else login_attempts.reset_at end returning attempts`,[key]);
       if (attempt.rows[0].attempts > 15) return {error:"ลองเข้าสู่ระบบหลายครั้งเกินไป กรุณารอ 10 นาที",status:429};
-      const user = (await client.query<Profile & {password_hash:string}>(`select p.*,a.password_hash from coffee.profiles p join coffee.accounts a on a.id=p.id where p.username=$1 for share of p`,[username])).rows[0];
+      const user = (await client.query<Profile & {password_hash:string}>(`select p.*,a.password_hash from coffee.profiles p join coffee.accounts a on a.id=p.id where p.username=$1 for share of p,a`,[username])).rows[0];
       const dummy = '00000000000000000000000000000000:'+'00'.repeat(64);
       const valid = await checkPassword(parsed.data.password,user?.password_hash ?? dummy);
       if (!user || !valid || !user.active) return {error:"Username หรือ Password ไม่ถูกต้อง",status:401};

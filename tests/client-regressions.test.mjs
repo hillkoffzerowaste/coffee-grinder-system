@@ -10,6 +10,7 @@ const { createRoot } = await import('react-dom/client');
 const { AppRouterContext } = await import('next/dist/shared/lib/app-router-context.shared-runtime.js');
 const { CounterWorkspace } = await import('../src/components/counter-workspace.tsx');
 const { PackingWorkspace } = await import('../src/components/packing-workspace.tsx');
+const { AdminPasswordReset } = await import('../src/components/admin-password-reset.tsx');
 const router = {replace(){},refresh(){},push(){},prefetch(){},back(){},forward(){}};
 const product = {id:'e9b56600-31ae-48ca-8b4e-669a8794b460',sku:'RB-HK-TEST',name:'Coffee',size_grams:200,barcode:'001234567890',unit:'bag'};
 const grind = {id:'c0db63ae-0bce-4483-b1d6-05fd627e9821',grind_value:'6',barcode:'990006'};
@@ -37,6 +38,26 @@ async function clickText(text) {
   assert.ok(button,`Missing button ${text}`);
   await act(async()=>button.click());
 }
+
+test('admin reset validates confirmation, blocks duplicate submits and clears secrets',async()=>{
+ const originalFetch=globalThis.fetch;const calls=[];const pending=deferred();
+ globalThis.fetch=async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return pending.promise;};
+ const unmount=await mount(()=>React.createElement(AdminPasswordReset,{users:[{id:profile.id,username:'target'}]}));
+ try {
+  await act(async()=>{const select=document.getElementById('reset-user');select.value=profile.id;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  await input('reset-password','new-password');await input('reset-confirm','different');
+  const form=document.getElementById('reset-password').closest('form');
+  const submit=()=>form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));
+  await act(async()=>submit());assert.equal(calls.length,0);
+  await input('reset-confirm','new-password');
+  await act(async()=>{submit();submit();});assert.equal(calls.length,1);
+  assert.equal(calls[0].url,`/api/admin/users/${profile.id}/password`);
+  assert.equal(document.getElementById('reset-user').disabled,true);
+  await act(async()=>pending.resolve(json({requiresLogin:false})));
+  assert.equal(document.getElementById('reset-password').value,'');assert.equal(document.getElementById('reset-confirm').value,'');
+  assert.ok(document.body.textContent.includes('เปลี่ยนรหัสผ่านสำเร็จ'));
+ }finally{await unmount();globalThis.fetch=originalFetch;}
+});
 
 test('double confirmation and uncertain network result reuse one immutable order',async()=>{
   const originalFetch=globalThis.fetch; const calls=[]; const first=deferred(); let attempts=0;
