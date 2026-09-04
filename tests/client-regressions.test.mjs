@@ -11,6 +11,8 @@ const { AppRouterContext } = await import('next/dist/shared/lib/app-router-conte
 const { CounterWorkspace } = await import('../src/components/counter-workspace.tsx');
 const { PackingWorkspace } = await import('../src/components/packing-workspace.tsx');
 const { AdminPasswordReset } = await import('../src/components/admin-password-reset.tsx');
+const {barcodeBits}=await import('../src/lib/barcode.ts');
+const {Code128Reader,BitArray}=await import('@zxing/library');
 const router = {replace(){},refresh(){},push(){},prefetch(){},back(){},forward(){}};
 const product = {id:'e9b56600-31ae-48ca-8b4e-669a8794b460',sku:'RB-HK-TEST',name:'Coffee',size_grams:200,barcode:'001234567890',unit:'bag'};
 const grind = {id:'c0db63ae-0bce-4483-b1d6-05fd627e9821',grind_value:'6',barcode:'990006'};
@@ -38,6 +40,41 @@ async function clickText(text) {
   assert.ok(button,`Missing button ${text}`);
   await act(async()=>button.click());
 }
+
+test('Code128 barcode images decode to exact configured values including leading zero',()=>{
+ for(const value of ['990006','990008','990010','990012','990015','00123','00000000000000000000000000000001']){
+  const bits='0'.repeat(20)+barcodeBits(value)+'0'.repeat(20),row=new BitArray(bits.length);
+  [...bits].forEach((bit,i)=>{if(bit==='1')row.set(i);});
+  assert.equal(new Code128Reader().decodeRow(0,row,null).getText(),value);
+ }
+});
+
+test('visible barcodes in both stations and sound scan/error/mute are functional',async()=>{
+ const originalFetch=globalThis.fetch,originalAudio=window.AudioContext;const tones=[];
+ class FakeAudio {
+  state='suspended';currentTime=0;destination={};
+  async resume(){this.state='running';}async suspend(){this.state='suspended';}async close(){this.state='closed';}
+  createOscillator(){return {frequency:{value:0},connect(){},disconnect(){},start(){tones.push(this.frequency.value);},stop(){}};}
+  createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(){}},connect(){},disconnect(){}};}
+ }
+ window.AudioContext=FakeAudio;
+ const grinds=['6','8','10','12','15'].map(v=>({...grind,id:v,grind_value:v,barcode:'990'+v.padStart(3,'0')}));
+ globalThis.fetch=async(url)=>{
+  if(url==='/api/catalog/options')return json({grinds,grinders:[]});
+  if(url.startsWith('/api/catalog/product/'))return url.endsWith('9999')?json({error:'Unknown'},404):json({product});
+  return json({orders:[],jobs:[]});
+ };
+ let unmount=await mount(CounterWorkspace);
+ try {
+  assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);
+  assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.deepEqual(tones,[880]);
+  await scan('scan','9999');assert.deepEqual(tones.slice(-2),[220,220]);
+  await scan('scan',product.barcode);assert.equal(tones.at(-1),880);
+  await clickText('ปิดเสียง');const count=tones.length;
+  await clickText('ยกเลิกรายการนี้');await scan('scan','9999');assert.equal(tones.length,count);
+  await unmount();unmount=await mount(PackingWorkspace);assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);
+ }finally{await unmount();globalThis.fetch=originalFetch;window.AudioContext=originalAudio;}
+});
 
 test('admin reset validates confirmation, blocks duplicate submits and clears secrets',async()=>{
  const originalFetch=globalThis.fetch;const calls=[];const pending=deferred();

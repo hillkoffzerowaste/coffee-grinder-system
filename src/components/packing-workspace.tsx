@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Topbar } from "@/components/topbar";
+import { GrindBarcodes } from "@/components/grind-barcodes";
+import { SoundControls } from "@/components/sound-controls";
+import { useSounds } from "@/lib/use-sounds";
+import { useCatalog } from "@/lib/use-catalog";
 import { apiFetch } from "@/lib/api";
 import { useScannerInput } from "@/lib/scanner";
 import type { BagJob, GrindLookup, JobStatus, Profile } from "@/lib/types";
@@ -20,7 +24,10 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [scan, setScan] = useState("");
   const [filter, setFilter] = useState("");
-  const [grinders, setGrinders] = useState<{ id: string; name: string }[]>([]);
+  const {grinds,grinders,catalogError,reloadCatalog}=useCatalog();
+  const sound=useSounds();
+  const {play}=sound;
+  const queueWatermark=useRef<bigint|null>(null);
   const [grinderId, setGrinderId] = useState("");
   const [verifiedGrind, setVerifiedGrind] = useState<GrindLookup | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,23 +45,28 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const action = job ? nextAction[job.status] : undefined;
   const visible = filter ? jobs.filter((item) => item.product_barcode_snapshot === filter || String(item.queue_seq) === filter || item.id === filter) : jobs;
 
+  const acceptJobs=useCallback((result:{jobs:BagJob[];latestQueueSeq?:string})=>{
+    const newest=result.latestQueueSeq!==undefined?BigInt(result.latestQueueSeq):result.jobs.reduce((max,job)=>BigInt(job.queue_seq)>max?BigInt(job.queue_seq):max,0n);
+    if(queueWatermark.current!==null&&newest>queueWatermark.current)play("newJob");
+    queueWatermark.current=queueWatermark.current===null||newest>queueWatermark.current?newest:queueWatermark.current;
+    setJobs(result.jobs);setLastSync(new Date().toLocaleTimeString("th-TH"));
+  },[play]);
   const load = useCallback(async () => {
     try {
-      const result = await apiFetch<{ jobs: BagJob[] }>("/api/jobs");
-      setJobs(result.jobs); setLastSync(new Date().toLocaleTimeString("th-TH"));
+      const result = await apiFetch<{ jobs: BagJob[];latestQueueSeq:string }>("/api/jobs");
+      acceptJobs(result);
     } catch (error) { setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ"); }
-  }, []);
+  }, [acceptJobs]);
   useEffect(() => {
     let active = true;
-    void apiFetch<{ jobs: BagJob[] }>("/api/jobs").then((data) => {
-      if (active) { setJobs(data.jobs); setLastSync(new Date().toLocaleTimeString("th-TH")); }
+    void apiFetch<{ jobs: BagJob[];latestQueueSeq:string }>("/api/jobs").then((data) => {
+      if (active) acceptJobs(data);
     }).catch((error: unknown) => {
       if (active) setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ");
     });
-    void apiFetch<{ grinders: { id: string; name: string }[] }>("/api/catalog/options").then((data) => setGrinders(data.grinders)).catch(() => undefined);
     const timer = setInterval(() => void load(), 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [load]);
+  }, [load,acceptJobs]);
 
   async function onScan(event: React.FormEvent) {
     event.preventDefault();
@@ -69,12 +81,13 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
       try {
         const { grind } = await apiFetch<{ grind: GrindLookup }>(`/api/catalog/grind/${encodeURIComponent(scannedValue)}`);
         if (grind.grind_value !== job.grind_value_snapshot) throw new Error(`เบอร์บดไม่ตรงใบงาน — ต้องเป็นเบอร์ ${job.grind_value_snapshot}`);
-        if (selectedRef.current === scannedJobId) { setVerifiedGrind(grind); setScan(""); }
-      } catch (error) { setError(error instanceof Error ? error.message : "สแกนไม่สำเร็จ"); }
+        if (selectedRef.current === scannedJobId) { setVerifiedGrind(grind); setScan(""); play("success"); }
+      } catch (error) { play("error");setError(error instanceof Error ? error.message : "สแกนไม่สำเร็จ"); }
       finally { operation.current = false; setBusy(false); }
     } else {
       const value = scannedValue;
       const matches = jobs.filter((item) => item.product_barcode_snapshot === value || String(item.queue_seq) === value || item.id === value);
+      play(matches.length?"success":"error");
       setFilter(value); setScan(""); setVerifiedGrind(null);
       if (matches.length === 1) selectJob(matches[0].id);
       else { selectJob(null); if (!matches.length) setError("ไม่พบงานที่ตรงบาร์โค้ด"); }
@@ -84,21 +97,23 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
 
   async function transition() {
     if (!job || !action || operation.current) return;
-    if (action.next === "GRINDING" && (!verifiedGrind || !grinderId)) { setError("สแกนเบอร์บดและเลือกคนบดก่อนเริ่มงาน"); return; }
+    if (action.next === "GRINDING" && (!verifiedGrind || !grinderId)) { play("error");setError("สแกนเบอร์บดและเลือกคนบดก่อนเริ่มงาน"); return; }
     operation.current = true; setBusy(true); setError("");
     try {
       await apiFetch(`/api/jobs/${job.id}/transition`, { method: "POST", body: JSON.stringify({ expectedStatus: job.status, nextStatus: action.next, grinderUserId: grinderId || undefined, grindId: verifiedGrind?.id }) });
-      await load();
+      play("success");await load();
       if (action.next === "COMPLETED") { selectedRef.current = null; setSelected(null); setFilter(""); setVerifiedGrind(null); }
       scanRef.current?.focus();
-    } catch (error) { setError(error instanceof Error ? error.message : "เปลี่ยนสถานะไม่สำเร็จ"); }
+    } catch (error) { play("error");setError(error instanceof Error ? error.message : "เปลี่ยนสถานะไม่สำเร็จ"); }
     finally { operation.current = false; setBusy(false); }
   }
 
   return <div className="app-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace grid">
     <section className="panel stack">
+      <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
       <div className="row"><h2>คิวงานบด / แพ็ค</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy} onClick={() => { if (operation.current) return; setFilter(""); selectJob(null); setVerifiedGrind(null); }}>แสดงทุกงาน</button></div>
       <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{job?.status === "CLAIMED" ? `สแกนเบอร์บด ${job.grind_value_snapshot}` : "สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy} /></form>
+      <GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} />
       {error && <div role="alert" className="notice error">{error}</div>}
       <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th></th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>#{item.queue_seq}</td><td>{item.product_name_snapshot}<br /><small>{item.sku_snapshot}</small></td><td>{item.size_grams_snapshot} g</td><td>{item.grind_value_snapshot}</td><td><span className="status">{item.status}</span></td><td><button className="button secondary" disabled={busy} onClick={() => selectJob(item.id)}>เปิดงาน</button></td></tr>)}</tbody></table>{!visible.length && <div className="empty">ไม่มีงานในคิวนี้</div>}</div>
       <small>อัปเดตล่าสุด {lastSync || "กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>

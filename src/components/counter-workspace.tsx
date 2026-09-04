@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Topbar } from "@/components/topbar";
+import { GrindBarcodes } from "@/components/grind-barcodes";
+import { SoundControls } from "@/components/sound-controls";
+import { useSounds } from "@/lib/use-sounds";
+import { useCatalog } from "@/lib/use-catalog";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useScannerInput } from "@/lib/scanner";
 import { orderSchema, pendingOrderSchema } from "@/lib/validation";
@@ -18,7 +22,9 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
   const [quantity, setQuantity] = useState(1);
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [grinds, setGrinds] = useState<GrindLookup[]>([]);
+  const {grinds,catalogError,reloadCatalog}=useCatalog();
+  const sound=useSounds();
+  const {play}=sound;
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -57,7 +63,6 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
   }, []);
 
   useEffect(() => {
-    void apiFetch<{ grinds: GrindLookup[] }>("/api/catalog/options").then((data) => setGrinds(data.grinds)).catch(() => undefined);
     let active = true;
     void apiFetch<{ orders: OrderSummary[] }>("/api/orders").then((data) => {
       if (active) setOrders(data.orders);
@@ -85,8 +90,8 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
         const result = await apiFetch<{ grind: GrindLookup }>(`/api/catalog/grind/${encodeURIComponent(value)}`);
         setGrind(result.grind);
       }
-      setScan("");
-    } catch (error) { setError(error instanceof Error ? error.message : "สแกนไม่สำเร็จ"); }
+      setScan(""); play("success");
+    } catch (error) { if(product)setGrind(null); play("error"); setError(error instanceof Error ? error.message : "สแกนไม่สำเร็จ"); }
     finally { operation.current = false; setBusy(false); setTimeout(() => scanRef.current?.focus(), 0); }
   }
 
@@ -115,18 +120,20 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
         method: "POST",
         body: retryBody.current,
       });
+      play("success");
       setMessage(`บันทึก ${result.order.order_no} สำเร็จ · ${result.order.total_bags} ถุง`);
       setLines([]); requestId.current = null; retryBody.current = null; setAwaitingRetry(false); void loadOrders();
       sessionStorage.removeItem(storageKey);
       scanRef.current?.focus();
     } catch (error) {
+      play("error");
       const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500;
       if (rejected) { requestId.current = null; retryBody.current = null; sessionStorage.removeItem(storageKey); }
       setAwaitingRetry(!rejected);
       setError(rejected ? error.message : "ยังยืนยันผลบันทึกไม่ได้ กรุณากดยืนยันซ้ำด้วยรายการเดิมก่อนแก้ไขออเดอร์");
     }
     finally { operation.current = false; setBusy(false); }
-  }, [lines, product, source, loadOrders, storageKey]);
+  }, [lines, product, source, loadOrders, storageKey, play]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "F10") { event.preventDefault(); void confirmOrder(); } };
@@ -137,11 +144,13 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
     <Topbar title={source === "COUNTER" ? "หน้าร้าน" : "เปิดออเดอร์ห้องแพ็ค"} profile={profile} />
     <main id="main" tabIndex={-1} className="workspace grid">
       <section className="panel stack">
+        <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
         <h2>{!product ? "1. สแกนบาร์โค้ดสินค้า" : !grind ? "2. สแกนบาร์โค้ดเบอร์บด" : "3. เลือกจำนวน"}</h2>
         <form onSubmit={submitScan} className="field">
           <label htmlFor="scan">{product ? "Grind Barcode — สแกนซ้ำเพื่อเปลี่ยนเบอร์ได้" : "Product Barcode"}</label>
           <input ref={scanRef} id="scan" className="input scan-input" autoFocus inputMode="numeric" autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy || awaitingRetry} placeholder={product ? "สแกนเบอร์บด" : "สแกนเลขบาร์โค้ดสินค้า"} />
         </form>
+        <GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} />
         {error && <div role="alert" className="notice error">{error}</div>}
         {message && <div role="status" className="notice success">{message}</div>}
         {product && <>
