@@ -24,7 +24,7 @@ await client.connect();
 try {
  await client.query('begin');
  await client.query("select pg_advisory_xact_lock(hashtext('coffee-neon-bootstrap'))");
- const migration=await readFile('database/migrations/001_neon.sql','utf8');
+ const migration=(await readFile('database/migrations/001_neon.sql','utf8')).replace(/\r\n/g,'\n');
  const checksum=createHash('sha256').update(migration).digest('hex');
  const exists=(await client.query("select to_regnamespace('coffee') as schema")).rows[0].schema;
  if(!exists) {
