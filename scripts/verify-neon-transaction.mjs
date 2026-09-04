@@ -17,12 +17,12 @@ try {
  const order=await create();assert.equal((await create()).id,order.id);
  const bag=(await c.query('select id from coffee.bags where order_id=$1',[order.id])).rows[0];
  await c.query("select set_config('coffee.actor_id',$1,true)",[admin]);
- for(const [from,to] of [['QUEUED','CLAIMED'],['CLAIMED','GRINDING'],['GRINDING','GROUND'],['GROUND','PACKING'],['PACKING','COMPLETED']]){
+ for(const [from,to] of [['QUEUED','CLAIMED'],['CLAIMED','GRINDING'],['GRINDING','COMPLETED']]){
    const result=(await c.query('select coffee.transition_bag($1,$2,$3,$4,$5) as result',[bag.id,from,to,grinder,grind.id])).rows[0].result;
    assert.equal(result.status,to);
  }
  assert.equal((await c.query('select status from coffee.orders where id=$1',[order.id])).rows[0].status,'COMPLETED');
  await c.query('reset role');
  await c.query("insert into coffee.audit_log(actor_id,action,entity,entity_id) values ($1,'VERIFY','orders',$2)",[admin,order.id]);
- console.log('Live Neon: role-scoped reads, idempotent order, all five transitions and audit insert passed; rolling back test data.');
+ console.log('Live Neon: role-scoped reads, idempotent order, all three transitions and audit insert passed; rolling back test data.');
 } finally {await c.query('rollback');await c.end();}

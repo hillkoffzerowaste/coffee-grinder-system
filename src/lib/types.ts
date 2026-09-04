@@ -1,6 +1,6 @@
 export type AppRole = "counter" | "packer" | "admin";
 export type Station = "counter" | "packing";
-export type JobStatus = "QUEUED" | "CLAIMED" | "GRINDING" | "GROUND" | "PACKING" | "COMPLETED" | "BLOCKED" | "CANCELLED";
+export type JobStatus = "QUEUED" | "CLAIMED" | "GRINDING" | "COMPLETED" | "BLOCKED" | "CANCELLED";
 
 export interface Profile {
   id: string;

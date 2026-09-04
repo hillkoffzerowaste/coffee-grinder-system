@@ -35,6 +35,13 @@ test('login requires username/password and a known station', () => {
 test('terminal jobs cannot be used as expected status', () => {
   assert.equal(transitionSchema.safeParse({expectedStatus:'COMPLETED',nextStatus:'CLAIMED'}).success,false);
 });
+test('only the new grinding completion transition is accepted', () => {
+  assert.equal(transitionSchema.safeParse({expectedStatus:'GRINDING',nextStatus:'COMPLETED'}).success,true);
+  for (const nextStatus of ['GROUND','PACKING']) {
+    assert.equal(transitionSchema.safeParse({expectedStatus:'GRINDING',nextStatus}).success,false);
+  }
+  assert.equal(transitionSchema.safeParse({expectedStatus:'GROUND',nextStatus:'PACKING'}).success,false);
+});
 test('station access requires compatible role, assigned station and active account', () => {
   for (const role of ['counter','packer','admin']) {
     for (const station of ['counter','packing','both']) {

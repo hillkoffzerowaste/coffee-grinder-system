@@ -10,6 +10,7 @@ test('database migrations and operational invariants', async (t) => {
   await db.exec(await readFile('database/migrations/001_neon.sql','utf8'));
   await db.exec(await readFile('database/migrations/002_manual_grinds.sql','utf8'));
   await db.exec(await readFile('database/migrations/003_thai_catalog.sql','utf8'));
+  await db.exec(await readFile('database/migrations/004_complete_after_grinding.sql','utf8'));
   await db.exec('set search_path=coffee,pg_catalog');
   assert.equal((await db.query('select * from coffee.grind_size_codes')).rows.length,13);
   assert.equal((await db.query('select * from coffee.grind_size_codes where barcode is null')).rows.length,8);
@@ -79,25 +80,31 @@ test('database migrations and operational invariants', async (t) => {
     await assert.rejects(transition(bags[0].id,'CLAIMED','GRINDING',grind),/owned/);
     await as(packer);
     await transition(bags[0].id,'CLAIMED','GRINDING',grind);
-    await transition(bags[0].id,'GRINDING','GROUND');
+    const completed = await transition(bags[0].id,'GRINDING','COMPLETED');
+    assert.equal(completed.status,'COMPLETED');
+    assert.ok(completed.ground_at);
+    assert.ok(completed.completed_at);
   });
-  await t.test('packing records its owner and rejects another operator completing it', async () => {
-    await as(other);
-    const packing = await transition(bags[0].id,'GROUND','PACKING');
-    assert.equal(packing.claimed_by,other);
+  await t.test('new lifecycle rejects legacy packaging transitions and completes its order', async () => {
     await as(packer);
-    await assert.rejects(transition(bags[0].id,'PACKING','COMPLETED'),/owned/);
-    await as(other); await transition(bags[0].id,'PACKING','COMPLETED');
+    await assert.rejects(transition(bags[1].id,'QUEUED','GROUND'),/Invalid transition/);
+    await transition(bags[1].id,'QUEUED','CLAIMED');
+    await transition(bags[1].id,'CLAIMED','GRINDING',grind);
+    await assert.rejects(transition(bags[1].id,'GRINDING','GROUND'),/Invalid transition/);
+    await transition(bags[1].id,'GRINDING','COMPLETED');
+    assert.equal((await db.query('select status from orders where id=$1',[order.id])).rows[0].status,'COMPLETED');
   });
   await t.test('NULL expected status cannot bypass optimistic concurrency', async () => {
     await as(packer);
     await assert.rejects(transition(bags[1].id,null,'CLAIMED'),/Status changed/);
   });
-  await t.test('admin cancellation closes an order only after every bag is terminal', async () => {
+  await t.test('admin cancellation closes a new order after its only bag is terminal', async () => {
+    await as(counter); const cancelledOrder = await create(randomUUID(),[{...lines[0],quantity:1}]);
+    const [cancelledBag] = (await db.query('select * from bags where order_id=$1',[cancelledOrder.id])).rows;
     await as(admin);
-    await transition(bags[1].id,'QUEUED','CANCELLED');
-    assert.equal((await db.query('select status from orders where id=$1',[order.id])).rows[0].status,'COMPLETED');
-    assert.equal((await db.query('select status from print_jobs where bag_id=$1',[bags[1].id])).rows[0].status,'CANCELLED');
+    await transition(cancelledBag.id,'QUEUED','CANCELLED');
+    assert.equal((await db.query('select status from orders where id=$1',[cancelledOrder.id])).rows[0].status,'CANCELLED');
+    assert.equal((await db.query('select status from print_jobs where bag_id=$1',[cancelledBag.id])).rows[0].status,'CANCELLED');
   });
   await t.test('SQL rejects missing parameters and empty lines', async () => {
     await as(counter);
@@ -117,7 +124,7 @@ test('database migrations and operational invariants', async (t) => {
     await assert.rejects(db.exec("update bags set status='COMPLETED'"),/permission denied/);
     assert.equal((await db.query('select * from orders')).rows.length,0);
     await as(packer);
-    assert.equal((await db.query('select * from orders')).rows.length,1);
+    assert.equal((await db.query('select * from orders')).rows.length,2);
     assert.equal((await db.query('select * from audit_log')).rows.length,0);
     await as(admin);
     assert.ok((await db.query('select * from audit_log')).rows.length > 0);
@@ -128,4 +135,35 @@ test('database migrations and operational invariants', async (t) => {
     try { await assert.rejects(db.exec('truncate products cascade'),/permission denied/); }
     finally { await db.exec('rollback'); }
   });
+});
+
+test('migration 004 retires legacy packing bags with events, audit records, and completed orders', async (t) => {
+  const db = new PGlite();
+  t.after(() => db.close());
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql']) {
+    await db.exec(await readFile(`database/migrations/${file}`,'utf8'));
+  }
+  const admin = randomUUID();
+  const order = randomUUID();
+  const ground = randomUUID();
+  const packing = randomUUID();
+  await db.query("insert into coffee.accounts(id,password_hash) values ($1,'fixture-only')", [admin]);
+  await db.query("insert into coffee.profiles(id,username,display_name,role,station) values ($1,'migration-admin','Migration admin','admin','both')", [admin]);
+  const product=(await db.query("insert into coffee.products(sku,name,size_grams) values ('RB-HK-LEGACY','Legacy beans',200) returning id")).rows[0].id;
+  const grind=(await db.query("select id from coffee.grind_size_codes where grind_value='6'")).rows[0].id;
+  const item=randomUUID();
+  await db.query("insert into coffee.orders(id,client_request_id,request_payload,source,status,total_bags,created_by) values ($1,$2,'{}','COUNTER','OPEN',2,$3)",[order,randomUUID(),admin]);
+  await db.query("insert into coffee.order_items(id,order_id,product_id,grind_id,quantity,client_line_id) values ($1,$2,$3,$4,2,'legacy')",[item,order,product,grind]);
+  for (const [bagNo, id, status] of [[1,ground,'GROUND'],[2,packing,'PACKING']]) {
+    await db.query("insert into coffee.bags(id,order_id,order_item_id,product_id,grind_id,bag_no,status,product_name_snapshot,sku_snapshot,size_grams_snapshot,product_barcode_snapshot,grind_value_snapshot) values ($1,$2,$3,$4,$5,$6,$7,'Legacy beans','RB-HK-LEGACY',200,'001234567890123456789','6')",[id,order,item,product,grind,bagNo,status]);
+  }
+  await db.exec(await readFile('database/migrations/004_complete_after_grinding.sql','utf8'));
+  const bags=(await db.query('select id,status,completed_at,claimed_by from coffee.bags where order_id=$1 order by id',[order])).rows;
+  assert.deepEqual(bags.map(({id,status,completed_at,claimed_by})=>({id,status,hasCompletedAt:Boolean(completed_at),claimed_by})),[
+    {id:ground,status:'COMPLETED',hasCompletedAt:true,claimed_by:null},
+    {id:packing,status:'COMPLETED',hasCompletedAt:true,claimed_by:null},
+  ].sort((a,b)=>a.id.localeCompare(b.id)));
+  assert.equal((await db.query('select status from coffee.orders where id=$1',[order])).rows[0].status,'COMPLETED');
+  assert.equal((await db.query("select count(*)::int as count from coffee.job_events where bag_id in ($1,$2) and to_status='COMPLETED'",[ground,packing])).rows[0].count,2);
+  assert.equal((await db.query("select count(*)::int as count from coffee.audit_log where action='RETIRE_PACKAGING_WORKFLOW' and entity='bags'",[])).rows[0].count,2);
 });

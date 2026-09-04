@@ -22,10 +22,16 @@ export const orderSchema = z.object({
 });
 
 export const transitionSchema = z.object({
-  expectedStatus: z.enum(["QUEUED", "CLAIMED", "GRINDING", "GROUND", "PACKING", "BLOCKED"]),
-  nextStatus: z.enum(["CLAIMED", "GRINDING", "GROUND", "PACKING", "COMPLETED", "BLOCKED", "CANCELLED"]),
+  expectedStatus: z.enum(["QUEUED", "CLAIMED", "GRINDING", "BLOCKED"]),
+  nextStatus: z.enum(["CLAIMED", "GRINDING", "COMPLETED", "BLOCKED", "CANCELLED"]),
   grinderUserId: z.uuid().optional(),
   grindId: z.uuid().optional(),
+}).superRefine((transition,ctx) => {
+  const normal = (transition.expectedStatus === "QUEUED" && transition.nextStatus === "CLAIMED")
+    || (transition.expectedStatus === "CLAIMED" && transition.nextStatus === "GRINDING")
+    || (transition.expectedStatus === "GRINDING" && transition.nextStatus === "COMPLETED");
+  const adminOnly = ["BLOCKED","CANCELLED"].includes(transition.nextStatus);
+  if (!normal && !adminOnly) ctx.addIssue({code:"custom",message:"Invalid transition"});
 });
 
 export const pendingOrderSchema = z.object({
