@@ -29,6 +29,8 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const sound=useSounds();
   const {play}=sound;
   const [queuedCount,setQueuedCount]=useState(0);
+  const [queueOpen,setQueueOpen]=useState(false);
+  const knownQueuedRef=useRef(new Set<string>());
   const queueRequest=useRef(0);
   const invalidateQueue=useCallback(()=>{++queueRequest.current;},[]);
   useQueueAlarm(queuedCount>0,sound.enabled,play);
@@ -51,7 +53,12 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const visible = filter ? jobs.filter((item) => item.product_barcode_snapshot === filter || String(item.queue_seq) === filter || item.id === filter) : jobs;
 
   const acceptJobs=useCallback((result:{jobs:BagJob[];queuedCount?:number})=>{
-    setQueuedCount(result.queuedCount??result.jobs.filter(job=>job.status==="QUEUED").length);
+    const queued=result.jobs.filter(job=>job.status==="QUEUED");
+    const hasNewQueued=queued.some(job=>!knownQueuedRef.current.has(job.id));
+    knownQueuedRef.current=new Set(queued.map(job=>job.id));
+    setQueuedCount(result.queuedCount??queued.length);
+    const selectedJob=result.jobs.find(job=>job.id===selectedRef.current);
+    if((hasNewQueued||result.jobs.some(job=>["CLAIMED","GRINDING"].includes(job.status)))&&!(selectedJob&&["CLAIMED","GRINDING"].includes(selectedJob.status)))setQueueOpen(true);
     setJobs(result.jobs);setLastSync(new Date().toLocaleTimeString("th-TH"));
   },[]);
   const load = useCallback(async () => {
@@ -120,12 +127,12 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
     finally { operation.current = false; setBusy(false); }
   }
 
-  return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace grid packing-layout">
+  return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace packing-home">
+    <section className="panel packing-barcode-home"><SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} /><div className="row"><h2>บาร์โค้ดเบอร์บด</h2>{queuedCount>0&&<button className="button" onClick={()=>setQueueOpen(true)}>คิวรอรับ {queuedCount} ถุง</button>}</div><section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section><small>รอรับ {queuedCount} ถุง · เสียงเตือนดังซ้ำทุก 3 วินาที จนงานรอรับทั้งระบบเหลือ 0 ถุง</small></section>
+    {queueOpen&&<div className="queue-modal" role="dialog" aria-modal="true" aria-label="รับงานคิวใหม่"><div className="queue-modal-window"><div className="grid packing-layout">
     <section className="panel packing-queue">
-      <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
-      <div className="row"><h2>คิวงานบด</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy} onClick={() => { if (operation.current) return; setFilter(""); selectJob(null); setVerifiedGrind(null); }}>แสดงทุกงาน</button></div>
+      <div className="row"><h2>รับงานคิวใหม่</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy} onClick={() => { if (operation.current) return; setFilter(""); selectJob(null); setVerifiedGrind(null); }}>แสดงทุกงาน</button><button className="button secondary" onClick={()=>{setQueueOpen(false);scanRef.current?.focus();}}>ปิด</button></div>
       <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{job?.status === "CLAIMED" ? `สแกนเบอร์บด ${job.grind_value_snapshot}` : "สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy} /></form>
-      <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
       <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th></th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>#{item.queue_seq}</td><td>{item.product_name_snapshot}<br /><small>{item.sku_snapshot}</small></td><td>{item.size_grams_snapshot} g</td><td>{item.grind_value_snapshot}</td><td><span className="status">{jobStatusLabels[item.status]}</span></td><td><button className="button secondary" disabled={busy} onClick={() => selectJob(item.id)}>เปิดงาน</button></td></tr>)}</tbody></table>{!visible.length && <div className="empty">ไม่มีงานในคิวนี้</div>}</div>
       <small>อัปเดตล่าสุด {lastSync || "กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
     </section>
@@ -154,5 +161,6 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
         <small>รอรับ {queuedCount} ถุง · เสียงเตือนดังซ้ำทุก 3 วินาที จนงานรอรับทั้งระบบเหลือ 0 ถุง</small>
       </div>
     </aside>
+    </div></div></div>}
   </main></div>;
 }
