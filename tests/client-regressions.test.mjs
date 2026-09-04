@@ -12,6 +12,7 @@ const { CounterWorkspace } = await import('../src/components/counter-workspace.t
 const { PackingWorkspace } = await import('../src/components/packing-workspace.tsx');
 const { AdminPasswordReset } = await import('../src/components/admin-password-reset.tsx');
 const {barcodeBits}=await import('../src/lib/barcode.ts');
+const {useQueueAlarm}=await import('../src/lib/use-queue-alarm.ts');
 const {Code128Reader,BitArray}=await import('@zxing/library');
 const router = {replace(){},refresh(){},push(){},prefetch(){},back(){},forward(){}};
 const product = {id:'e9b56600-31ae-48ca-8b4e-669a8794b460',sku:'RB-HK-TEST',name:'Coffee',size_grams:200,barcode:'001234567890',unit:'bag'};
@@ -40,6 +41,27 @@ async function clickText(text) {
   assert.ok(button,`Missing button ${text}`);
   await act(async()=>button.click());
 }
+
+test('queue alarm repeats for backlog, survives partial claims, stops on empty/mute/unmount',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout','setInterval']});
+ const calls=[];const play=kind=>calls.push(kind);
+ function Alarm({count,enabled}){useQueueAlarm(count>0,enabled,play);return null;}
+ const root=createRoot(document.getElementById('root'));
+ const render=async(count,enabled)=>act(async()=>root.render(React.createElement(Alarm,{count,enabled})));
+ const tick=async(ms)=>act(async()=>t.mock.timers.tick(ms));
+ try {
+  await render(2,false);await tick(6000);assert.equal(calls.length,0);
+  await render(2,true);await tick(1);assert.equal(calls.length,1);
+  await tick(3000);assert.equal(calls.length,2);
+  await render(1,true);await tick(3000);assert.equal(calls.length,3);
+  await render(0,true);await tick(6000);assert.equal(calls.length,3);
+  await render(1,true);await tick(1);assert.equal(calls.length,4);
+  await render(1,false);await tick(6000);assert.equal(calls.length,4);
+  await render(1,true);await tick(1);assert.equal(calls.length,5);
+ }finally{await act(async()=>root.unmount());}
+ const count=calls.length;await tick(6000);assert.equal(calls.length,count);
+ assert.ok(calls.every(kind=>kind==='newJob'));
+});
 
 test('Code128 barcode images decode to exact configured values including leading zero',()=>{
  for(const value of ['990006','990008','990010','990012','990015','00123','00000000000000000000000000000001']){

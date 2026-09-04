@@ -6,6 +6,7 @@ import { Topbar } from "@/components/topbar";
 import { GrindBarcodes } from "@/components/grind-barcodes";
 import { SoundControls } from "@/components/sound-controls";
 import { useSounds } from "@/lib/use-sounds";
+import { useQueueAlarm } from "@/lib/use-queue-alarm";
 import { useCatalog } from "@/lib/use-catalog";
 import { apiFetch } from "@/lib/api";
 import { useScannerInput } from "@/lib/scanner";
@@ -27,7 +28,10 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const {grinds,grinders,catalogError,reloadCatalog}=useCatalog();
   const sound=useSounds();
   const {play}=sound;
-  const queueWatermark=useRef<bigint|null>(null);
+  const [queuedCount,setQueuedCount]=useState(0);
+  const queueRequest=useRef(0);
+  const invalidateQueue=useCallback(()=>{++queueRequest.current;},[]);
+  useQueueAlarm(queuedCount>0,sound.enabled,play);
   const [grinderId, setGrinderId] = useState("");
   const [verifiedGrind, setVerifiedGrind] = useState<GrindLookup | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,28 +49,28 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const action = job ? nextAction[job.status] : undefined;
   const visible = filter ? jobs.filter((item) => item.product_barcode_snapshot === filter || String(item.queue_seq) === filter || item.id === filter) : jobs;
 
-  const acceptJobs=useCallback((result:{jobs:BagJob[];latestQueueSeq?:string})=>{
-    const newest=result.latestQueueSeq!==undefined?BigInt(result.latestQueueSeq):result.jobs.reduce((max,job)=>BigInt(job.queue_seq)>max?BigInt(job.queue_seq):max,0n);
-    if(queueWatermark.current!==null&&newest>queueWatermark.current)play("newJob");
-    queueWatermark.current=queueWatermark.current===null||newest>queueWatermark.current?newest:queueWatermark.current;
+  const acceptJobs=useCallback((result:{jobs:BagJob[];queuedCount?:number})=>{
+    setQueuedCount(result.queuedCount??result.jobs.filter(job=>job.status==="QUEUED").length);
     setJobs(result.jobs);setLastSync(new Date().toLocaleTimeString("th-TH"));
-  },[play]);
+  },[]);
   const load = useCallback(async () => {
+    const request=++queueRequest.current;
     try {
-      const result = await apiFetch<{ jobs: BagJob[];latestQueueSeq:string }>("/api/jobs");
-      acceptJobs(result);
-    } catch (error) { setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ"); }
+      const result = await apiFetch<{ jobs: BagJob[];queuedCount:number }>("/api/jobs");
+      if(request===queueRequest.current)acceptJobs(result);
+    } catch (error) { if(request===queueRequest.current)setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ"); }
   }, [acceptJobs]);
   useEffect(() => {
     let active = true;
-    void apiFetch<{ jobs: BagJob[];latestQueueSeq:string }>("/api/jobs").then((data) => {
-      if (active) acceptJobs(data);
+    const request=++queueRequest.current;
+    void apiFetch<{ jobs: BagJob[];queuedCount:number }>("/api/jobs").then((data) => {
+      if (active&&request===queueRequest.current) acceptJobs(data);
     }).catch((error: unknown) => {
-      if (active) setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ");
+      if (active&&request===queueRequest.current) setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ");
     });
     const timer = setInterval(() => void load(), 5000);
-    return () => { active = false; clearInterval(timer); };
-  }, [load,acceptJobs]);
+    return () => { active = false; invalidateQueue();clearInterval(timer); };
+  }, [load,acceptJobs,invalidateQueue]);
 
   async function onScan(event: React.FormEvent) {
     event.preventDefault();
