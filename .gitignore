@@ -7,7 +7,6 @@ node_modules/
 *.tsbuildinfo
 .local-test-db/
 .vercel/
-supabase/.temp/
 .deployment-secrets.json
 .production-accounts.json
 *.log

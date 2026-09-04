@@ -45,11 +45,11 @@ try {
  const seeded=(await client.query("select version from coffee.schema_migrations where version='seed_catalog_v1'")).rowCount;
  if(!seeded){
    const items=csv(await readFile('data/sku-coffee-beans-200g-plus.csv','utf8'));
-   if(items.length!==139||new Set(items.map(i=>i.sku)).size!==139)throw new Error('Unexpected catalog size');
+   if(items.length!==143||new Set(items.map(i=>i.sku)).size!==143)throw new Error('Unexpected catalog size');
    for(const item of items){
      if(!(Number(item.size_grams)>=200))throw new Error('Invalid size');
-     const product=(await client.query('insert into coffee.products(sku,name,size_grams,unit) values ($1,$2,$3,$4) returning id',[item.sku,item.product_name,Number(item.size_grams),item.unit])).rows[0];
-     for(const code of item.barcode.split(',').map(s=>s.trim()).filter(Boolean))await client.query('insert into coffee.product_barcodes(product_id,barcode) values ($1,$2)',[product.id,code]);
+     const product=(await client.query('insert into coffee.products(sku,name,size_grams,unit) values ($1,$2,$3,$4) on conflict(sku) do update set name=excluded.name,size_grams=excluded.size_grams,unit=excluded.unit returning id',[item.sku,item.product_name,Number(item.size_grams),item.unit])).rows[0];
+     for(const code of item.barcode.split(',').map(s=>s.trim()).filter(Boolean))await client.query('insert into coffee.product_barcodes(product_id,barcode) values ($1,$2) on conflict(barcode) do nothing',[product.id,code]);
    }
    await client.query("insert into coffee.schema_migrations(version,checksum) values ('seed_catalog_v1',$1)",[checksum]);
  }

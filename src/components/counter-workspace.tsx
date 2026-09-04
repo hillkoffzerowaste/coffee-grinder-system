@@ -9,7 +9,7 @@ import { SoundControls } from "@/components/sound-controls";
 import { useSounds } from "@/lib/use-sounds";
 import { useCatalog } from "@/lib/use-catalog";
 import { apiFetch, ApiError } from "@/lib/api";
-import { useScannerInput } from "@/lib/scanner";
+import { useScannerFocus, useScannerInput } from "@/lib/scanner";
 import { orderSchema, pendingOrderSchema } from "@/lib/validation";
 import type { DraftLine, GrindLookup, ProductLookup, Profile } from "@/lib/types";
 
@@ -34,6 +34,7 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
   const operation = useRef(false);
   const retryBody = useRef<string | null>(null);
   const [awaitingRetry, setAwaitingRetry] = useState(false);
+  useScannerFocus(scanRef, busy || awaitingRetry);
   const storageKey = `coffee-pending:${profile.id}:${source}`;
   const ready = useRef(false);
   useEffect(() => {
@@ -137,7 +138,7 @@ export function CounterWorkspace({ profile, source = "COUNTER" }: { profile: Pro
           <label htmlFor="scan">{product ? "Grind Barcode — สแกนซ้ำเพื่อเปลี่ยนเบอร์ได้" : "Product Barcode"}</label>
           <input ref={scanRef} id="scan" className="input scan-input" autoFocus inputMode="numeric" autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy || awaitingRetry} placeholder={product ? "สแกนเบอร์บด" : "สแกนเลขบาร์โค้ดสินค้า"} />
         </form>
-        <details className="barcode-drawer"><summary>แสดงบาร์โค้ดเบอร์บด</summary><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></details>
+        <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
         {error && <div role="alert" className="notice error">{error}</div>}
         {message && <div role="status" className="notice success">{message}</div>}
         {product && <>

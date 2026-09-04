@@ -9,9 +9,19 @@ test('database migrations and operational invariants', async (t) => {
   t.after(() => db.close());
   await db.exec(await readFile('database/migrations/001_neon.sql','utf8'));
   await db.exec(await readFile('database/migrations/002_manual_grinds.sql','utf8'));
+  await db.exec(await readFile('database/migrations/003_thai_catalog.sql','utf8'));
   await db.exec('set search_path=coffee,pg_catalog');
   assert.equal((await db.query('select * from coffee.grind_size_codes')).rows.length,13);
   assert.equal((await db.query('select * from coffee.grind_size_codes where barcode is null')).rows.length,8);
+  await t.test('Thai red-bag bean SKUs are searchable by their configured barcodes',async()=>{
+    const products=(await db.query("select sku,name,barcode from products join product_barcodes on product_barcodes.product_id=products.id where sku in ('RB-HK-0061','RB-HK-0015','RB-HK-0095','RB-HK-0060') order by sku")).rows;
+    assert.deepEqual(products,[
+      {sku:'RB-HK-0015',name:'กาแฟซองแดง French 500 กรัม',barcode:'8857109002754'},
+      {sku:'RB-HK-0060',name:'กาแฟซองแดง Italian 500 กรัม',barcode:'8857109002730'},
+      {sku:'RB-HK-0061',name:'กาแฟซองแดง French 250 กรัม',barcode:'8857109002741'},
+      {sku:'RB-HK-0095',name:'กาแฟซองแดง Italian 250 กรัม',barcode:'8857109011237'},
+    ]);
+  });
   const counter = randomUUID(), packer = randomUUID(), other = randomUUID(), admin = randomUUID();
   for (const [id, name, role, station] of [[counter,'counter','counter','counter'],[packer,'packer','packer','packing'],[other,'other','packer','packing'],[admin,'admin','admin','packing']]) {
     await db.query("insert into coffee.accounts(id,password_hash) values ($1,'fixture-only')", [id]);

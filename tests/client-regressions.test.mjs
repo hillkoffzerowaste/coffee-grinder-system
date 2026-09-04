@@ -88,13 +88,14 @@ test('visible barcodes in both stations and sound scan/error/mute are functional
  };
  let unmount=await mount(CounterWorkspace);
  try {
+  assert.equal(document.querySelector('details.barcode-drawer'),null,'counter keeps grind barcodes visible without a disclosure');
   assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);
-  assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.deepEqual(tones,[880]);
+  assert.equal(tones.length,0);await clickText('เปิดเสียงแจ้งเตือน');assert.deepEqual(tones,[880]);assert.equal(document.activeElement?.id,'scan','counter restores scan focus after an action');
   await scan('scan','9999');assert.deepEqual(tones.slice(-2),[220,220]);
   await scan('scan',product.barcode);assert.equal(tones.at(-1),880);
   await clickText('ปิดเสียง');const count=tones.length;
   await clickText('ยกเลิกรายการนี้');await scan('scan','9999');assert.equal(tones.length,count);
-  await unmount();unmount=await mount(PackingWorkspace);assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);
+  await unmount();unmount=await mount(PackingWorkspace);assert.equal(document.querySelector('details.barcode-drawer'),null,'packing keeps grind barcodes visible without a disclosure');assert.equal(document.querySelectorAll('svg[data-barcode]').length,5);await clickText('แสดงทุกงาน');assert.equal(document.activeElement?.id,'packing-scan','packing restores scan focus after an action');
  }finally{await unmount();globalThis.fetch=originalFetch;window.AudioContext=originalAudio;}
 });
 

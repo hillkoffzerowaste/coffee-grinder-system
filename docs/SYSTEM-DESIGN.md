@@ -114,9 +114,9 @@ Counter / Grinding / Packing Web
               |
         Next.js API commands
               |
-   Supabase PostgreSQL + RLS
+      Neon PostgreSQL + RLS
        |                  |
- Realtime changes      Outbox events
+ HTTP polling         Outbox events
                             |
                    Linux Print/Station Agent
                             |
@@ -126,8 +126,8 @@ Counter / Grinding / Packing Web
 องค์ประกอบ:
 
 - Next.js/React/TypeScript เป็น web application
-- Supabase PostgreSQL เป็นฐานข้อมูลหลักและ transaction boundary
-- Supabase Realtime ใช้ broadcast/change notification ไปยัง station
+- Neon PostgreSQL เป็นฐานข้อมูลหลักและ transaction boundary
+- Station refreshes use HTTP polling; this is only a notification mechanism, not the source of truth
 - Server API เป็นผู้ตรวจสิทธิ์, validate command, lock job และเขียน audit
 - Linux Agent ทำหน้าที่ print เท่านั้น ไม่เป็นผู้ตัดสินสถานะงาน
 - Scanner รับข้อมูลผ่าน Scanner Agent/USB Serial (CDC) เป็นหลัก เพื่อไม่ผูกกับภาษาหรือ keyboard layout ของเครื่องคอม

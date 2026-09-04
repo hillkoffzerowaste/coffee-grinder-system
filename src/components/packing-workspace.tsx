@@ -11,7 +11,7 @@ import { useSounds } from "@/lib/use-sounds";
 import { useQueueAlarm } from "@/lib/use-queue-alarm";
 import { useCatalog } from "@/lib/use-catalog";
 import { apiFetch } from "@/lib/api";
-import { useScannerInput } from "@/lib/scanner";
+import { useScannerFocus, useScannerInput } from "@/lib/scanner";
 import type { BagJob, GrindLookup, JobStatus, Profile } from "@/lib/types";
 
 const nextAction: Partial<Record<JobStatus, { label: string; next: JobStatus }>> = {
@@ -41,6 +41,7 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
   const [lastSync, setLastSync] = useState("");
   const scanRef = useRef<HTMLInputElement>(null);
   useScannerInput(scanRef, setScan);
+  useScannerFocus(scanRef, busy);
   const selectedRef = useRef<string | null>(null);
   const operation = useRef(false);
   function selectJob(id: string | null) {
@@ -126,7 +127,7 @@ export function PackingWorkspace({ profile }: { profile: Profile }) {
       <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
       <div className="row"><h2>คิวงานบด / แพ็ค</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy} onClick={() => { if (operation.current) return; setFilter(""); selectJob(null); setVerifiedGrind(null); }}>แสดงทุกงาน</button></div>
       <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{job?.status === "CLAIMED" ? `สแกนเบอร์บด ${job.grind_value_snapshot}` : "สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy} /></form>
-      <details className="barcode-drawer"><summary>แสดงบาร์โค้ดเบอร์บด</summary><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></details>
+      <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
       <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th></th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>#{item.queue_seq}</td><td>{item.product_name_snapshot}<br /><small>{item.sku_snapshot}</small></td><td>{item.size_grams_snapshot} g</td><td>{item.grind_value_snapshot}</td><td><span className="status">{jobStatusLabels[item.status]}</span></td><td><button className="button secondary" disabled={busy} onClick={() => selectJob(item.id)}>เปิดงาน</button></td></tr>)}</tbody></table>{!visible.length && <div className="empty">ไม่มีงานในคิวนี้</div>}</div>
       <small>อัปเดตล่าสุด {lastSync || "กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
     </section>

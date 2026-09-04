@@ -13,7 +13,7 @@ for(const account of accounts){
  const catalog=await options.json();assert.equal(catalog.grinds.length,13);assert.equal(catalog.grinds.filter(g=>g.barcode).length,5);
  const products=await fetch(base+'/api/admin/products',{headers:{cookie}});
  assert.equal(products.status,account.username==='admin'?200:403);
- if(products.status===200)assert.equal((await products.json()).items.length,139);
+ if(products.status===200)assert.equal((await products.json()).items.length,143);
  const product=await fetch(base+'/api/catalog/product/2005002940000',{headers:{cookie}});
  assert.equal(product.status,200);assert.equal((await product.json()).product.size_grams,500);
  const jobs=await fetch(base+'/api/jobs',{headers:{cookie}});assert.equal(jobs.status,station==='packing'?200:403);

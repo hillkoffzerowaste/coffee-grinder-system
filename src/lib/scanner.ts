@@ -27,3 +27,24 @@ export function useScannerInput(ref: RefObject<HTMLInputElement | null>, setValu
     return () => input.removeEventListener("keydown", onKey);
   }, [ref, setValue]);
 }
+
+// Operational pages should be ready for the next hardware scan after any completed action.
+export function useScannerFocus(ref: RefObject<HTMLInputElement | null>, unavailable = false) {
+  useEffect(() => {
+    const focus = () => {
+      const input = ref.current;
+      if (input && input.isConnected && !input.disabled) input.focus();
+    };
+    const scheduleFocus = () => queueMicrotask(focus);
+    const onClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.matches("input, textarea, select")) return;
+      scheduleFocus();
+    };
+    const onChange = (event: Event) => { if (event.target !== ref.current) scheduleFocus(); };
+    focus();
+    document.addEventListener("click", onClick);
+    document.addEventListener("change", onChange);
+    return () => { document.removeEventListener("click", onClick); document.removeEventListener("change", onChange); };
+  }, [ref, unavailable]);
+}
