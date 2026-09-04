@@ -2,7 +2,7 @@
 import { barcodeBits } from "@/lib/barcode";
 import type { GrindLookup } from "@/lib/types";
 const primary=["6","8","10","12","15"];
-export function GrindBarcodes({grinds,error,retry}:{grinds:GrindLookup[];error:string;retry:()=>Promise<void>}) {
+export function GrindBarcodes({grinds,error,retry,onSelect,disabled=false}:{grinds:GrindLookup[];error:string;retry:()=>Promise<void>;onSelect?:(grind:GrindLookup)=>void;disabled?:boolean}) {
   const items=primary.flatMap(value=>grinds.filter((g):g is GrindLookup & {barcode:string}=>g.grind_value===value&&!!g.barcode));
   return <section className="stack" aria-label="บาร์โค้ดเบอร์บด">
     <h3>บาร์โค้ดเบอร์บด — สแกนจากจอ</h3>
@@ -10,7 +10,18 @@ export function GrindBarcodes({grinds,error,retry}:{grinds:GrindLookup[];error:s
     {error && <div className="notice error" role="alert">{error} <button type="button" className="button secondary" onClick={()=>void retry()}>โหลดเบอร์บดใหม่</button></div>}
     <div className="row">{items.map(grind=>{
       const bits=barcodeBits(grind.barcode),width=(bits.length+20)*2;
-      return <figure className="panel stack" key={grind.id} style={{margin:0,maxWidth:"100%",minWidth:0}}>
+      return <figure className="panel stack" key={grind.id} style={{margin:0,maxWidth:"100%",minWidth:0}}
+        role={onSelect?"button":undefined}
+        tabIndex={onSelect?(disabled?-1:0):undefined}
+        aria-label={onSelect?`เบอร์ ${grind.grind_value}`:undefined}
+        aria-disabled={onSelect?disabled:undefined}
+        onClick={onSelect?()=>{if(!disabled)onSelect(grind);}:undefined}
+        onKeyDown={onSelect?event=>{
+          if(event.key==="Enter"||event.key===" "){
+            event.preventDefault();
+            if(!disabled&&!event.repeat)onSelect(grind);
+          }
+        }:undefined}>
         <strong>เบอร์ {grind.grind_value}</strong>
         <svg role="img" aria-label={`บาร์โค้ดเบอร์บด ${grind.grind_value}: ${grind.barcode}`} data-barcode={grind.barcode} width={width} height={88} viewBox={`0 0 ${width} 88`} style={{maxWidth:"100%",height:"auto"}} shapeRendering="crispEdges">
           <rect width={width} height={88} fill="var(--surface)" />

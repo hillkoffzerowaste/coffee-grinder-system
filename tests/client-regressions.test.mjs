@@ -27,6 +27,7 @@ const { PackingWorkspace } = await import('../src/components/packing-workspace.t
 const { OrderMonitor } = await import('../src/components/order-monitor.tsx');
 const { AdminPasswordReset } = await import('../src/components/admin-password-reset.tsx');
 const { QuantityDialog } = await import('../src/components/quantity-dialog.tsx');
+const { ProductSearch } = await import('../src/components/product-search.tsx');
 const {barcodeBits}=await import('../src/lib/barcode.ts');
 const {useQueueAlarm}=await import('../src/lib/use-queue-alarm.ts');
 const {Code128Reader,BitArray}=await import('@zxing/library');
@@ -297,7 +298,12 @@ test('Thai layout scanner digit positions preserve numeric barcode and leading z
   try {
     const input=document.getElementById('scan');
     await act(async()=>{
-      for(const [key,code] of [['จ','Digit0'],['ๅ','Digit1'],['/','Digit2'],['-','Digit3']])input.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key,code,bubbles:true,cancelable:true}));
+      for(const [key,code] of [['จ','Digit0'],['ๅ','Digit1'],['/','Digit2'],['-','Digit3']]){
+        input.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key,code,bubbles:true,cancelable:true}));
+        input.value+=key;input.setSelectionRange(input.value.length,input.value.length);
+        input.dispatchEvent(new dom.window.InputEvent('input',{bubbles:true,inputType:'insertText',data:key}));
+      }
+      input.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true,cancelable:true}));
     });
     assert.equal(input.value,'0123');
   } finally {await unmount();globalThis.fetch=originalFetch;}
@@ -333,6 +339,27 @@ test('packing scans product, grind and quantity to start a batch and completes w
   assert.ok(api.jobs.every(j=>j.status==='COMPLETED'));
   assert.ok(document.body.textContent.includes('เสร็จสิ้น — จัดเก็บในประวัติแล้ว'));
  }finally{await unmount();}
+});
+
+test('product name search ignores stale replies and requires an explicit choice',async(t)=>{
+  const old=deferred(),selected=[];
+  t.mock.method(globalThis,'fetch',async url=>{
+    const q=new URL(url,'http://localhost').searchParams.get('q');
+    if(q==='ซอง')return old.promise;
+    return json({products:[product]});
+  });
+  const root=createRoot(document.getElementById('root'));
+  try{
+    await act(async()=>root.render(React.createElement(ProductSearch,{query:'ซอง',onSelect:item=>selected.push(item)})));
+    await act(async()=>new Promise(resolve=>setTimeout(resolve,330)));
+    await act(async()=>root.render(React.createElement(ProductSearch,{query:'ซองแดง',onSelect:item=>selected.push(item)})));
+    await act(async()=>new Promise(resolve=>setTimeout(resolve,330)));
+    assert.equal(selected.length,0,'search never chooses a product automatically');
+    assert.ok(document.body.textContent.includes(product.sku));
+    await act(async()=>old.resolve(json({products:[{...product,sku:'STALE'}]})));
+    assert.equal(document.body.textContent.includes('STALE'),false,'late response cannot replace current results');
+    await clickText(product.name);assert.deepEqual(selected,[product]);
+  }finally{await act(async()=>root.unmount());}
 });
 
 test('packing rejects a valid but wrong grind and a failed rescan cannot reuse cancelled verification',async(t)=>{
@@ -593,9 +620,11 @@ test('counter and manual orders retain identical recovery requests for malformed
   });
   let unmount=await mount(CounterWorkspace,{source});
   try{
-   await scan('scan',product.barcode);await scan('scan',grind.barcode);await submitQuantity();
-   if(source==='PACKING_MANUAL')await select('grinder-select',profile.id);
-   await clickText('ยืนยัน 1 ถุง');assert.equal(calls.length,1);
+   await scan('scan',product.barcode);await scan('scan',grind.barcode);
+   if(source==='PACKING_MANUAL')await select('manual-grinder',profile.id);
+   await submitQuantity();
+   if(source==='COUNTER')await clickText('ยืนยัน 1 ถุง');
+   assert.equal(calls.length,1);
    const original=calls[0];assert.equal(JSON.parse(original).source,source);
    if(source==='PACKING_MANUAL')assert.equal(JSON.parse(original).grinderUserId,profile.id);
    const saved=sessionStorage.getItem(key);

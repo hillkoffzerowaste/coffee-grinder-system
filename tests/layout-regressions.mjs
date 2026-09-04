@@ -19,7 +19,7 @@ const bundle = await build({
     import {PackingWorkspace} from './src/components/packing-workspace';
     const profile={id:${JSON.stringify(profileId)},username:'test',display_name:'ผู้ทดสอบ',role:'admin',station:'both',active:true};
     const root=createRoot(document.getElementById('root'));
-    function render(){root.render(location.pathname==='/packing'?<PackingWorkspace profile={profile}/>:<CounterWorkspace key={location.pathname} profile={profile} source={location.pathname==='/packing/new'?'PACKING_MANUAL':'COUNTER'}/>);}
+    function render(){root.render(location.pathname.startsWith('/packing')?<PackingWorkspace profile={profile} initialManual={location.pathname==='/packing/new'}/>:<CounterWorkspace key={location.pathname} profile={profile} source="COUNTER"/>);}
     window.addEventListener('popstate',render);render();`, loader: 'tsx', resolveDir: process.cwd() },
   bundle: true, outfile: 'bundle.js', write: false, format: 'iife', jsx: 'automatic',
   define: { 'process.env.NODE_ENV': '"production"' },
@@ -62,7 +62,7 @@ async function modal(page, name) {
 }
 async function invalidQuantity(page, value, flag) {
   await page.locator('#quantity').fill(value);
-  await page.getByRole('button', { name: 'ยืนยันจำนวน', exact: true }).click();
+  await page.locator('button[name="quantity-action"][value="confirm"]').click();
   await expect(page.locator('dialog[open]')).toBeVisible();
   assert.equal(await page.locator('#quantity').evaluate((input, flag) => input.validity[flag], flag), true);
 }
@@ -86,6 +86,7 @@ try {
         let data;
         if (request.method() === 'POST') posts.push({ path, body: JSON.parse(request.postData()) });
         if (path === '/api/catalog/options') data = { grinds, grinders: [{ id: grinderId, name: 'ผู้ทดสอบ' }] };
+        else if (path === '/api/catalog/search') data = { products: [product] };
         else if (path === `/api/catalog/product/${product.barcode}`) data = { product };
         else if (path.startsWith('/api/catalog/grind/')) data = { grind: grinds.find(grind => path.endsWith(grind.barcode)) };
         else if (path === '/api/jobs') {
@@ -106,7 +107,7 @@ try {
           data = { batch: { batch_id: batchId, bag_ids: selected.map(job => job.id) } };
         } else if (path === '/api/orders' && request.method() === 'POST') {
           const body = posts.at(-1).body, manual = body.source === 'PACKING_MANUAL';
-          if (manual) currentJobs = jobs.slice(0, body.lines[0].quantity).map(job => ({ ...job, status: 'GRINDING', grinding_batch_id: batchId, claimed_by: profileId, grinder_name_snapshot: 'ผู้ทดสอบ' }));
+          if (manual) currentJobs = jobs.slice(0, body.lines.reduce((sum,line)=>sum+line.quantity,0)).map(job => ({ ...job, status: 'GRINDING', grinding_batch_id: batchId, claimed_by: profileId, grinder_name_snapshot: 'ผู้ทดสอบ' }));
           data = { order: { id: orderId, order_no: 'HK-TEST-NEW', total_bags: body.lines.reduce((sum, line) => sum + line.quantity, 0), batch_id: manual ? batchId : null } };
         } else if (path === '/api/orders') {
           const summary = { id: orderId, order_no: 'HK-TEST-1', total_bags: 3, status: 'OPEN', queued_count: 3, active_count: 0, completed_count: 0, oldest_queued_at: new Date(Date.now() - 120000).toISOString(), overdue_queued_count: 3, progress: { QUEUED: 3 } };
@@ -133,15 +134,24 @@ try {
           await screenshot(page, `${name}-history`);
           await page.getByRole('button', { name: 'งานค้าง', exact: true }).click();
         }
-        await scan(page, '#scan', product.barcode); await productAboveScanner(page, '#scan'); await screenshot(page, `${name}-product`);
+        await page.locator('#scan').fill('ซองแดง');
+        await page.getByRole('button', { name: new RegExp(product.sku) }).click();
+        await productAboveScanner(page, '#scan'); await screenshot(page, `${name}-product`);
         await scan(page, '#scan', grinds[1].barcode); await modal(page, name);
+        if (station === 'packingmanual') await page.locator('#manual-grinder').selectOption(grinderId);
         await invalidQuantity(page, '0', 'rangeUnderflow'); await invalidQuantity(page, '100', 'rangeOverflow');
         await page.keyboard.press('F10'); assert.equal(posts.length, 0, 'invalid quantity and modal F10 cannot post');
         await page.keyboard.press('Escape');
         await expect(page.locator('dialog[open]')).toHaveCount(0); await expect(page.locator('#scan')).toBeFocused();
         await expect(page.locator('.data-table tbody tr')).toHaveCount(0);
         await scan(page, '#scan', product.barcode); await scan(page, '#scan', grinds[1].barcode);
-        await confirmQuantity(page, 2, '#scan'); await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
+        if (station === 'packingmanual') {
+          await page.locator('#manual-grinder').selectOption(grinderId);
+          await page.locator('#quantity').fill('1');
+          await page.getByRole('button', { name: 'เพิ่มรายการถัดไป', exact: true }).click();
+          await expect(page.locator('dialog[open]')).toHaveCount(0);await expect(page.locator('#scan')).toBeFocused();
+        } else await confirmQuantity(page, 2, '#scan');
+        await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
         if (station === 'counter') {
           await scan(page, '#scan', product.barcode); await page.locator('#grind-select').selectOption(grinds[2].id);
           await modal(page, `${name}-dropdown`); await confirmQuantity(page, 3, '#scan');
@@ -160,18 +170,28 @@ try {
           assert.deepEqual(await page.evaluate(() => window.__routerPushes), []);
           assert.ok(currentJobs.every(job => job.status === 'QUEUED'));
         } else {
-          const confirm = page.getByRole('button', { name: 'ยืนยัน 2 ถุง · F10', exact: true });
-          await expect(confirm).toBeDisabled(); await page.keyboard.press('F10'); assert.equal(posts.length, 0, 'manual requires grinder');
-          await page.locator('#grinder-select').selectOption(grinderId); await expect(confirm).toBeEnabled(); await confirm.click();
-          await expect(page).toHaveURL(`${origin}/packing?batch=${batchId}`); await expect(page.getByTestId('job-action')).toBeEnabled();
+          await scan(page, '#scan', product.barcode);
+          await page.getByRole('button', { name: 'เบอร์ 10', exact: true }).click();await modal(page, `${name}-click`);
+          await expect(page.locator('#manual-grinder')).toHaveValue(grinderId);
+          await page.locator('#quantity').fill('2');
+          await page.getByRole('button', { name: 'ยืนยันออเดอร์ทั้งหมด', exact: true }).click();
+          await expect(page.getByTestId('job-action')).toBeEnabled();
           assert.equal(posts.length, 1); assert.equal(posts[0].path, '/api/orders');
           assert.equal(posts[0].body.source, 'PACKING_MANUAL'); assert.equal(posts[0].body.grinderUserId, grinderId);
-          assert.deepEqual(await page.evaluate(() => window.__routerPushes), [`/packing?batch=${batchId}`]);
+          assert.deepEqual(posts[0].body.lines.map(line=>line.quantity),[1,2]);
+          assert.deepEqual(await page.evaluate(() => window.__routerPushes), []);
           assert.ok(queries.includes(`?batch=${batchId}`)); await screenshot(page, `${name}-batch`);
         }
       } else {
-        await page.getByRole('link', { name: 'เปิดออเดอร์เอง', exact: true }).waitFor();
-        await scan(page, '#packing-scan', product.barcode); await productAboveScanner(page, '#packing-scan'); await screenshot(page, `${name}-product`);
+        await page.getByRole('button', { name: 'เปิดออเดอร์เอง', exact: true }).waitFor();
+        await page.getByRole('button', { name: 'เปิดออเดอร์เอง', exact: true }).click();
+        await expect(page.getByText('HILLKOFF · ห้องแพ็ค · เปิดออเดอร์ด่วน', { exact: true })).toBeVisible();
+        await expect(page).toHaveURL(`${origin}/packing`);
+        await page.getByRole('button', { name: 'กลับห้องแพ็ค', exact: true }).click();
+        await expect(page.locator('#packing-scan')).toBeFocused();
+        await page.locator('#packing-scan').fill('ซองแดง');
+        await page.getByRole('button', { name: new RegExp(product.sku) }).click();
+        await productAboveScanner(page, '#packing-scan'); await screenshot(page, `${name}-product`);
         await scan(page, '#packing-scan', grinds[1].barcode); await modal(page, name);
         await page.locator('#grinder').selectOption(grinderId);
         await invalidQuantity(page, '0', 'rangeUnderflow'); await invalidQuantity(page, '4', 'rangeOverflow'); assert.equal(posts.length, 0);
@@ -181,7 +201,7 @@ try {
         await expect(page.getByTestId('job-action')).toBeEnabled(); assert.equal(posts.length, 1);
         assert.equal(posts[0].path, '/api/jobs/start'); assert.equal(posts[0].body.orderId, orderId);
         assert.equal(posts[0].body.grinderUserId, grinderId); assert.equal(posts[0].body.quantity, 2);
-        assert.ok(queries.includes(`?scan=${product.barcode}`)); assert.ok(queries.includes(`?orderId=${orderId}`)); assert.ok(queries.includes(`?batch=${batchId}`));
+        assert.ok(queries.some(query=>query.includes('?search='))); assert.ok(queries.includes(`?orderId=${orderId}`)); assert.ok(queries.includes(`?batch=${batchId}`));
         await screenshot(page, `${name}-grinding`); await page.getByTestId('job-action').click();
         await expect(page.getByText('เสร็จสิ้น — จัดเก็บในประวัติแล้ว', { exact: true })).toBeVisible();
         assert.equal(posts.length, 2); assert.equal(posts[1].path, '/api/jobs/complete'); assert.equal(posts[1].body.batchId, batchId);

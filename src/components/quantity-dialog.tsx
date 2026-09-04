@@ -13,6 +13,8 @@ type QuantityDialogProps = {
   locked?: boolean;
   error?: string;
   onConfirm: (quantity: number) => void;
+  onAddAnother?: (quantity: number) => void;
+  confirmLabel?: string;
   onCancel: () => void;
   children?: ReactNode;
 };
@@ -20,7 +22,7 @@ type QuantityDialogProps = {
 // The parent mounts this only while open and restores scanner focus on dismissal.
 export function QuantityDialog({
   title, description, max, initial = 1, busy = false, locked = false, error,
-  onConfirm, onCancel, children,
+  onConfirm, onAddAnother, confirmLabel = "ยืนยันจำนวน", onCancel, children,
 }: QuantityDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,7 +60,10 @@ export function QuantityDialog({
         const value = inputRef.current?.valueAsNumber ?? Number.NaN;
         if (!Number.isInteger(value) || value < 1 || (!locked && !(value <= max))) return;
         if (!event.currentTarget.reportValidity()) return;
-        onConfirm(value);
+        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        if (submitter?.getAttribute("value") === "add-another") {
+          if (!locked) onAddAnother?.(value);
+        } else onConfirm(value);
       }}>
         <fieldset className="quantity-dialog__fields" disabled={busy}>
           <div className="quantity-dialog__field">
@@ -85,7 +90,8 @@ export function QuantityDialog({
         {error && <div id={`${id}-error`} className="quantity-dialog__error" role="alert">{error}</div>}
         <div className="quantity-dialog__actions">
           <button type="button" disabled={busy} onClick={() => { if (!busy) onCancel(); }} className="quantity-dialog__button quantity-dialog__button--cancel">ยกเลิก</button>
-          <button type="submit" disabled={busy} className="quantity-dialog__button quantity-dialog__button--confirm">{busy ? "กำลังดำเนินการ..." : "ยืนยันจำนวน"}</button>
+          {onAddAnother && <button type="submit" name="quantity-action" value="add-another" disabled={busy || locked} className="quantity-dialog__button quantity-dialog__button--cancel">เพิ่มรายการถัดไป</button>}
+          <button type="submit" name="quantity-action" value="confirm" disabled={busy} className="quantity-dialog__button quantity-dialog__button--confirm">{busy ? "กำลังดำเนินการ..." : confirmLabel}</button>
         </div>
       </form>
     </dialog>

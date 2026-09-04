@@ -1,5 +1,6 @@
 "use client";
-import Link from "next/link";
+import {CounterWorkspace} from "@/components/counter-workspace";
+import {JobSearch} from "@/components/product-search";
 import {useEffect,useRef,useState} from "react";
 import {Topbar} from "@/components/topbar";
 import {GrindBarcodes} from "@/components/grind-barcodes";
@@ -20,7 +21,8 @@ type BatchResult={batch:{batch_id:string;bag_ids:string[]}};
 const groupKey=(job:BagJob)=>`${job.order_id}:${job.product_barcode_snapshot}`;
 const orderNo=(job:BagJob)=>job.orders?.order_no??job.order?.order_no??job.order_id;
 
-export function PackingWorkspace({profile}:{profile:Profile}){
+export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;initialManual?:boolean}){
+ const [manualOpen,setManualOpen]=useState(initialManual);
  const [jobs,setJobs]=useState<BagJob[]>([]),[queuedCount,setQueuedCount]=useState(0),[hasMore,setHasMore]=useState(false);
  const [context,setContext]=useState<BagJob|null>(null),[orderJobs,setOrderJobs]=useState<BagJob[]>([]),[candidates,setCandidates]=useState<BagJob[]>([]);
  const [batchId,setBatchId]=useState(""),[batchJobs,setBatchJobs]=useState<BagJob[]>([]),[revision,setRevision]=useState(0);
@@ -30,8 +32,8 @@ export function PackingWorkspace({profile}:{profile:Profile}){
  const pendingRef=useRef<Pending|null>(null),operation=useRef(false),scanRef=useRef<HTMLInputElement>(null),ready=useRef(false);
  const queueRef=useRef<HTMLElement>(null);
  const {grinds,grinders,catalogError,reloadCatalog}=useCatalog(),sound=useSounds();
- useScannerInput(scanRef,setScan);
- useScannerFocus(scanRef,busy||!!grind||!!pending||recoveryError);
+ useScannerInput(scanRef,setScan,!manualOpen);
+ useScannerFocus(scanRef,manualOpen||busy||!!grind||!!pending||recoveryError);
  useQueueAlarm(queuedCount>0,sound.enabled,sound.play);
  const storageKey=`coffee-packing-pending:${profile.id}`;
  const canStart=(job:BagJob)=>job.status==="QUEUED"||(job.status==="CLAIMED"&&(job.claimed_by===profile.id||profile.role==="admin"));
@@ -81,6 +83,7 @@ export function PackingWorkspace({profile}:{profile:Profile}){
  async function onScan(event:React.FormEvent){
   event.preventDefault();const value=(scanRef.current?.value??scan).trim();
   if(!value||!ready.current||operation.current||pendingRef.current||recoveryError||grind)return;
+  if(!context&&!/^(?:\d+|[a-f0-9-]{36})$/i.test(value))return;
   operation.current=true;setBusy(true);setError("");setMessage("");let single:BagJob|undefined;
   try{
    if(context&&context.status!=="GRINDING"){
@@ -144,12 +147,14 @@ export function PackingWorkspace({profile}:{profile:Profile}){
  }
  const visibleRows=[...new Map(jobs.map(j=>[j.grinding_batch_id??j.id,j])).values()];
  const canCompleteBatch=batchJobs.length>0&&batchJobs.every(j=>j.status==="GRINDING"&&j.claimed_by===profile.id);
+ if(manualOpen)return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค · เปิดออเดอร์ด่วน" profile={profile}/><CounterWorkspace embedded profile={profile} source="PACKING_MANUAL" onCancel={()=>{setManualOpen(false);setScan("");refocus();}} onCompleted={id=>{setContext(null);setCandidates([]);setOrderJobs([]);setBatchJobs([]);setBatchId(id);setScan("");setMessage("เปิดออเดอร์แล้ว — กำลังบด");setRevision(n=>n+1);setManualOpen(false);refocus();}}/></div>;
  return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile}/><main id="main" tabIndex={-1} className="workspace grid packing-layout">
   <section ref={queueRef} className="panel packing-queue"><SoundControls sound={sound} onReady={refocus}/>
-   <div className="row"><h2>คิวงานบด</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy||!!pending} onClick={clearSelection}>สแกนสินค้าใหม่</button></div>
+   <div className="row"><h2>คิวงานบด</h2><button type="button" className="button secondary" disabled={busy||!!pending||!!grind||recoveryError} onClick={()=>setManualOpen(true)}>เปิดออเดอร์เอง</button><button className="button secondary" disabled={busy||!!pending} onClick={clearSelection}>สแกนสินค้าใหม่</button></div>
    {context&&<div className="product-result"><div><strong className="product-name">{context.product_name_snapshot}</strong><div>{context.sku_snapshot} · {orderNo(context)}</div></div><strong>{context.size_grams_snapshot} g</strong></div>}
-   <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{context&&context.status!=="GRINDING"?"ตรวจชื่อสินค้าแล้ว สแกนเบอร์บด":"สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={e=>setScan(e.target.value)} disabled={busy||!!pending||!!grind||recoveryError}/></form>
-   <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog}/></section>
+   <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{context&&context.status!=="GRINDING"?"ตรวจชื่อสินค้าแล้ว สแกนหรือคลิกเบอร์บด":"สแกน Product Barcode / เลขคิว หรือพิมพ์ชื่อ / SKU"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={e=>setScan(e.target.value)} disabled={busy||!!pending||!!grind||recoveryError}/></form>
+   {!context&&<JobSearch query={scan} disabled={busy||!!pending||recoveryError} profileId={profile.id} isAdmin={profile.role==="admin"} onSelect={job=>{setScan("");void choose(job);}}/>}
+   <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} disabled={!context||context.status==="GRINDING"||busy||!!pending||!!grind||recoveryError} onSelect={g=>void selectManualGrind(g.id)}/></section>
    {hasMore&&<div className="notice">แสดง 1,000 ถุงแรก — สแกนบาร์โค้ดหรือเลขคิวเพื่อค้นหางานที่เหลือ</div>}
    <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า / ออเดอร์</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{visibleRows.map(j=><tr key={j.grinding_batch_id??j.id}><td>#{j.queue_seq}</td><td>{j.product_name_snapshot}<br/><small>{j.sku_snapshot} · {orderNo(j)}</small></td><td>{j.size_grams_snapshot} g</td><td>{j.grind_value_snapshot}</td><td><span className={`status ${j.status==="QUEUED"?"warn":"info"}`}>{jobStatusLabels[j.status]}</span>{j.grinding_batch_id&&<small> · ชุดงาน</small>}</td><td><button className="button secondary" disabled={busy||!!pending||recoveryError} onClick={()=>void choose(j)}>เปิดงาน</button></td></tr>)}</tbody></table>{!jobs.length&&<div className="empty">ไม่มีงานในคิวนี้</div>}</div>
    <small>อัปเดตล่าสุด {lastSync||"กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
