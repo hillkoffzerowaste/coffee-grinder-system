@@ -1,30 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 
 test('database migrations and operational invariants', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  // Only emulate Supabase identity plumbing; execute the real application SQL.
-  await db.exec(`create role anon; create role authenticated;
-    create schema auth; create table auth.users(id uuid primary key);
-    create function auth.uid() returns uuid language sql stable as
-    $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
-    grant usage on schema auth to authenticated;
-    grant execute on function auth.uid() to authenticated;
-    create publication supabase_realtime;
-    grant usage on schema public to anon,authenticated;
-    alter default privileges in schema public grant all on tables to anon,authenticated;`);
-  for (const file of (await readdir('supabase/migrations')).filter(f => f.endsWith('.sql')).sort()) {
-    const sql = await readFile(`supabase/migrations/${file}`, 'utf8');
-    // gen_random_uuid is built into PostgreSQL; PGlite does not bundle pgcrypto.
-    await db.exec(sql.replace('create extension if not exists pgcrypto;', ''));
-  }
+  await db.exec(await readFile('database/migrations/001_neon.sql','utf8'));
+  await db.exec('set search_path=coffee,pg_catalog');
   const counter = randomUUID(), packer = randomUUID(), other = randomUUID(), admin = randomUUID();
   for (const [id, name, role, station] of [[counter,'counter','counter','counter'],[packer,'packer','packer','packing'],[other,'other','packer','packing'],[admin,'admin','admin','packing']]) {
-    await db.query('insert into auth.users values ($1)', [id]);
+    await db.query("insert into coffee.accounts(id,password_hash) values ($1,'fixture-only')", [id]);
     await db.query('insert into profiles(id,username,display_name,role,station) values ($1,$2,$2,$3,$4)',[id,name,role,station]);
   }
   const product = (await db.query("insert into products(sku,name,size_grams) values ('RB-HK-TEST','Test beans',200) returning id")).rows[0].id;
@@ -32,7 +19,7 @@ test('database migrations and operational invariants', async (t) => {
   const grind = (await db.query("select id from grind_size_codes where grind_value='6'")).rows[0].id;
   const grinder = (await db.query("insert into grinder_users(name) values ('Operator') returning id")).rows[0].id;
   const lines = [{clientLineId:'line-1',productId:product,productBarcode:'001234567890123456789',grindId:grind,grindBarcode:'990006',quantity:2}];
-  async function as(id) { await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]); }
+  async function as(id) { await db.query("select set_config('coffee.actor_id',$1,false)",[id]); }
   async function create(key = randomUUID(), payload = lines, source = 'COUNTER') {
     return (await db.query('select create_order($1,$2,$3::jsonb) as result',[key,source,JSON.stringify(payload)])).rows[0].result;
   }
@@ -100,9 +87,9 @@ test('database migrations and operational invariants', async (t) => {
     await as(counter); await assert.rejects(create(),/UNAUTHORIZED/);
   });
   await t.test('anonymous RPC and direct authenticated writes are denied', async () => {
-    await db.exec('set role anon');
+    await db.exec('set role coffee_guest');
     await assert.rejects(create(),/permission denied/);
-    await db.exec('reset role; set role authenticated');
+    await db.exec('reset role; set role coffee_app');
     await assert.rejects(db.exec("update bags set status='COMPLETED'"),/permission denied/);
     assert.equal((await db.query('select * from orders')).rows.length,0);
     await as(packer);
@@ -113,7 +100,7 @@ test('database migrations and operational invariants', async (t) => {
     await db.exec('reset role');
   });
   await t.test('authenticated roles cannot TRUNCATE tables, which bypasses RLS', async () => {
-    await db.exec('begin; set local role authenticated');
+    await db.exec('begin; set local role coffee_app');
     try { await assert.rejects(db.exec('truncate products cascade'),/permission denied/); }
     finally { await db.exec('rollback'); }
   });

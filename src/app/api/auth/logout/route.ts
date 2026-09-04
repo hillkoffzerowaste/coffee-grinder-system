@@ -1,11 +1,14 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { hasPublicEnv } from "@/lib/env";
-
+import { pool } from "@/lib/db";
+import { hashToken } from "@/lib/password";
+import { sessionCookie,sessionOptions } from "@/lib/auth";
 export async function POST() {
-  if (!hasPublicEnv()) return NextResponse.json({ error: "ระบบยังไม่พร้อมเชื่อมต่อฐานข้อมูล" }, { status: 503 });
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signOut();
-  if (error) return NextResponse.json({ error: "ออกจากระบบไม่สำเร็จ กรุณาลองใหม่" }, { status: 503 });
-  return NextResponse.json({ ok: true });
+  const store=await cookies(),token=store.get(sessionCookie)?.value;
+  if(token) {
+    try {await pool().query("update coffee.sessions set revoked_at=now() where token_hash=$1",[hashToken(token)]);}
+    catch {return NextResponse.json({error:"ออกจากระบบไม่สำเร็จ กรุณาลองใหม่"},{status:503});}
+  }
+  store.set(sessionCookie,"",{...sessionOptions,maxAge:0});
+  return NextResponse.json({ok:true});
 }

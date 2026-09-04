@@ -19,5 +19,5 @@ assert.equal(unavailable.status,503);
 assert.ok((await unavailable.json()).error.includes('ฐานข้อมูล'));
 assert.equal((await post('/api/auth/login',{}, {origin:'https://foreign.example'})).status,403);
 assert.equal((await fetch(base+'/api/orders')).status,503);
-assert.equal((await post('/api/auth/logout',{})).status,503);
+assert.equal((await post('/api/auth/logout',{})).status,200);
 console.log('Production HTTP checks passed: login, guarded redirects, validation, configuration errors, and cross-origin rejection.');
