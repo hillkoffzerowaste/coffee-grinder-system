@@ -1,158 +1,176 @@
 "use client";
-
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { jobStatusLabels } from "@/lib/job-status";
-import { dropdownGrinds } from "@/lib/grind-options";
-import { Topbar } from "@/components/topbar";
-import { GrindBarcodes } from "@/components/grind-barcodes";
-import { SoundControls } from "@/components/sound-controls";
-import { useSounds } from "@/lib/use-sounds";
-import { useQueueAlarm } from "@/lib/use-queue-alarm";
-import { useCatalog } from "@/lib/use-catalog";
-import { apiFetch } from "@/lib/api";
-import { useScannerFocus, useScannerInput } from "@/lib/scanner";
-import type { BagJob, GrindLookup, JobStatus, Profile } from "@/lib/types";
+import {useEffect,useRef,useState} from "react";
+import {Topbar} from "@/components/topbar";
+import {GrindBarcodes} from "@/components/grind-barcodes";
+import {QuantityDialog} from "@/components/quantity-dialog";
+import {SoundControls} from "@/components/sound-controls";
+import {useSounds} from "@/lib/use-sounds";
+import {useQueueAlarm} from "@/lib/use-queue-alarm";
+import {useCatalog} from "@/lib/use-catalog";
+import {apiFetch,ApiError} from "@/lib/api";
+import {useScannerFocus,useScannerInput} from "@/lib/scanner";
+import {batchStartSchema,batchCompleteSchema} from "@/lib/validation";
+import {jobStatusLabels} from "@/lib/job-status";
+import type {BagJob,GrindLookup,Profile} from "@/lib/types";
 
-const nextAction: Partial<Record<JobStatus, { label: string; next: JobStatus }>> = {
-  QUEUED: { label: "รับงาน", next: "CLAIMED" },
-  CLAIMED: { label: "เริ่มบด", next: "GRINDING" },
-  GRINDING: { label: "บดเสร็จ", next: "COMPLETED" },
-};
+type Queue={jobs:BagJob[];queuedCount:number;hasMore?:boolean};
+type Pending={path:"/api/jobs/start"|"/api/jobs/complete";body:string;description:string};
+type BatchResult={batch:{batch_id:string;bag_ids:string[]}};
+const groupKey=(job:BagJob)=>`${job.order_id}:${job.product_barcode_snapshot}`;
+const orderNo=(job:BagJob)=>job.orders?.order_no??job.order?.order_no??job.order_id;
 
-export function PackingWorkspace({ profile }: { profile: Profile }) {
-  const [jobs, setJobs] = useState<BagJob[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [scan, setScan] = useState("");
-  const [filter, setFilter] = useState("");
-  const {grinds,grinders,catalogError,reloadCatalog}=useCatalog();
-  const sound=useSounds();
-  const {play}=sound;
-  const [queuedCount,setQueuedCount]=useState(0);
-  const queueRequest=useRef(0);
-  const invalidateQueue=useCallback(()=>{++queueRequest.current;},[]);
-  useQueueAlarm(queuedCount>0,sound.enabled,play);
-  const [grinderId, setGrinderId] = useState("");
-  const [verifiedGrind, setVerifiedGrind] = useState<GrindLookup | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [lastSync, setLastSync] = useState("");
-  const scanRef = useRef<HTMLInputElement>(null);
-  useScannerInput(scanRef, setScan);
-  useScannerFocus(scanRef, busy);
-  const selectedRef = useRef<string | null>(null);
-  const operation = useRef(false);
-  function selectJob(id: string | null) {
-    if (operation.current) return;
-    selectedRef.current = id; setSelected(id); setVerifiedGrind(null);
-  }
-  const job = jobs.find((item) => item.id === selected);
-  const action = job ? nextAction[job.status] : undefined;
-  const visible = filter ? jobs.filter((item) => item.product_barcode_snapshot === filter || String(item.queue_seq) === filter || item.id === filter) : jobs;
-
-  const acceptJobs=useCallback((result:{jobs:BagJob[];queuedCount?:number})=>{
-    setQueuedCount(result.queuedCount??result.jobs.filter(job=>job.status==="QUEUED").length);
-    setJobs(result.jobs);setLastSync(new Date().toLocaleTimeString("th-TH"));
-  },[]);
-  const load = useCallback(async () => {
-    const request=++queueRequest.current;
-    try {
-      const result = await apiFetch<{ jobs: BagJob[];queuedCount:number }>("/api/jobs");
-      if(request===queueRequest.current)acceptJobs(result);
-    } catch (error) { if(request===queueRequest.current)setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ"); }
-  }, [acceptJobs]);
-  useEffect(() => {
-    let active = true;
-    const request=++queueRequest.current;
-    void apiFetch<{ jobs: BagJob[];queuedCount:number }>("/api/jobs").then((data) => {
-      if (active&&request===queueRequest.current) acceptJobs(data);
-    }).catch((error: unknown) => {
-      if (active&&request===queueRequest.current) setError(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ");
-    });
-    const timer = setInterval(() => void load(), 5000);
-    return () => { active = false; invalidateQueue();clearInterval(timer); };
-  }, [load,acceptJobs,invalidateQueue]);
-
-  async function onScan(event: React.FormEvent) {
-    event.preventDefault();
-    const scannedValue = (scanRef.current?.value ?? scan).trim();
-    if (!scannedValue || operation.current) return;
-    setError("");
-    if (job?.status === "CLAIMED") {
-      operation.current = true;
-      const scannedJobId = job.id;
-      setVerifiedGrind(null);
-      setBusy(true);
-      try {
-        const { grind } = await apiFetch<{ grind: GrindLookup }>(`/api/catalog/grind/${encodeURIComponent(scannedValue)}`);
-        if (grind.grind_value !== job.grind_value_snapshot) throw new Error(`เบอร์บดไม่ตรงใบงาน — ต้องเป็นเบอร์ ${job.grind_value_snapshot}`);
-        if (selectedRef.current === scannedJobId) { setVerifiedGrind(grind); setScan(""); play("success"); }
-      } catch (error) { play("error");setError(error instanceof Error ? error.message : "สแกนไม่สำเร็จ"); }
-      finally { operation.current = false; setBusy(false); }
-    } else {
-      const value = scannedValue;
-      const matches = jobs.filter((item) => item.product_barcode_snapshot === value || String(item.queue_seq) === value || item.id === value);
-      play(matches.length?"success":"error");
-      setFilter(value); setScan(""); setVerifiedGrind(null);
-      if (matches.length === 1) selectJob(matches[0].id);
-      else { selectJob(null); if (!matches.length) setError("ไม่พบงานที่ตรงบาร์โค้ด"); }
+export function PackingWorkspace({profile}:{profile:Profile}){
+ const [jobs,setJobs]=useState<BagJob[]>([]),[queuedCount,setQueuedCount]=useState(0),[hasMore,setHasMore]=useState(false);
+ const [context,setContext]=useState<BagJob|null>(null),[orderJobs,setOrderJobs]=useState<BagJob[]>([]),[candidates,setCandidates]=useState<BagJob[]>([]);
+ const [batchId,setBatchId]=useState(""),[batchJobs,setBatchJobs]=useState<BagJob[]>([]),[revision,setRevision]=useState(0);
+ const [scan,setScan]=useState(""),[grind,setGrind]=useState<GrindLookup|null>(null),[grinderId,setGrinderId]=useState("");
+ const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[lastSync,setLastSync]=useState("");
+ const [pending,setPending]=useState<Pending|null>(null),[recoveryError,setRecoveryError]=useState(false);
+ const pendingRef=useRef<Pending|null>(null),operation=useRef(false),scanRef=useRef<HTMLInputElement>(null),ready=useRef(false);
+ const queueRef=useRef<HTMLElement>(null);
+ const {grinds,grinders,catalogError,reloadCatalog}=useCatalog(),sound=useSounds();
+ useScannerInput(scanRef,setScan);
+ useScannerFocus(scanRef,busy||!!grind||!!pending||recoveryError);
+ useQueueAlarm(queuedCount>0,sound.enabled,sound.play);
+ const storageKey=`coffee-packing-pending:${profile.id}`;
+ const canStart=(job:BagJob)=>job.status==="QUEUED"||(job.status==="CLAIMED"&&(job.claimed_by===profile.id||profile.role==="admin"));
+ const available=orderJobs.filter(job=>context&&groupKey(job)===groupKey(context)&&canStart(job)&&job.grind_id===grind?.id);
+ const refocus=()=>setTimeout(()=>{if(!document.querySelector("dialog[open]"))scanRef.current?.focus({preventScroll:true});},0);
+ useEffect(()=>{
+  let active=true;
+  void Promise.resolve().then(()=>{
+   if(!active)return;
+   try{
+    const raw=sessionStorage.getItem(storageKey);
+    if(raw){const saved=JSON.parse(raw) as Pending;
+     if(saved.path!=="/api/jobs/start"&&saved.path!=="/api/jobs/complete")throw new Error("Invalid recovery");
+     (saved.path==="/api/jobs/start"?batchStartSchema:batchCompleteSchema).parse(JSON.parse(saved.body));
+     pendingRef.current=saved;setPending(saved);setError("มีรายการรอยืนยันผล กรุณายืนยันซ้ำด้วยข้อมูลเดิม");
     }
-    scanRef.current?.focus();
+    const selectedBatch=new URLSearchParams(window.location.search).get("batch");
+    if(selectedBatch&&/^[a-f0-9-]{36}$/i.test(selectedBatch))setBatchId(selectedBatch);
+   }catch{setRecoveryError(true);setError("อ่านรายการค้างไม่ได้ กรุณาให้ผู้ดูแลตรวจสอบก่อนทำรายการใหม่");}
+   ready.current=true;
+  });return()=>{active=false;};
+ },[storageKey]);
+ useEffect(()=>{
+  let active=true,inFlight=false;
+  async function load(){if(inFlight)return;inFlight=true;
+   try{
+    const [queue,detail,batch]=await Promise.all([apiFetch<Queue>("/api/jobs"),context?apiFetch<Queue>(`/api/jobs?orderId=${context.order_id}`):null,batchId?apiFetch<Queue>(`/api/jobs?batch=${batchId}`):null]);
+    if(!active)return;
+    setJobs(queue.jobs);setQueuedCount(queue.queuedCount??queue.jobs.filter(j=>j.status==="QUEUED").length);setHasMore(!!queue.hasMore);setLastSync(new Date().toLocaleTimeString("th-TH"));
+    if(detail){setOrderJobs(detail.jobs);if(context?.status==="GRINDING"&&!detail.jobs.some(j=>j.id===context.id)){setContext(null);setMessage("รายการเดิมไม่อยู่ในคิวงานล่าสุดแล้ว");}}
+    if(batch){setBatchJobs(batch.jobs);if(!batch.jobs.length){setBatchId("");setMessage("ชุดงานนี้ไม่มีถุงที่กำลังทำแล้ว — ดูผลในประวัติ");}}
+    setError(current=>current==="โหลดสถานะไม่สำเร็จ — กำลังลองใหม่"?"":current);
+   }catch{if(active)setError("โหลดสถานะไม่สำเร็จ — กำลังลองใหม่");}finally{inFlight=false;}
   }
-
-  function selectGrind(grind:GrindLookup) {
-    if(operation.current||job?.status!=="CLAIMED")return;
-    setVerifiedGrind(null);
-    if(grind.grind_value!==job.grind_value_snapshot){setError(`เบอร์บดไม่ตรงใบงาน — ต้องเป็นเบอร์ ${job.grind_value_snapshot}`);play("error");return;}
-    setVerifiedGrind(grind);setError("");play("success");
-  }
-
-  async function transition() {
-    if (!job || !action || operation.current) return;
-    if (action.next === "GRINDING" && (!verifiedGrind || !grinderId)) { play("error");setError("เลือกหรือสแกนเบอร์บด และเลือกคนบดก่อนเริ่มงาน"); return; }
-    operation.current = true; setBusy(true); setError("");
-    try {
-      await apiFetch(`/api/jobs/${job.id}/transition`, { method: "POST", body: JSON.stringify({ expectedStatus: job.status, nextStatus: action.next, grinderUserId: grinderId || undefined, grindId: verifiedGrind?.id }) });
-      play("success");await load();
-      if (action.next === "COMPLETED") { selectedRef.current = null; setSelected(null); setFilter(""); setVerifiedGrind(null); }
-      scanRef.current?.focus();
-    } catch (error) { play("error");setError(error instanceof Error ? error.message : "เปลี่ยนสถานะไม่สำเร็จ"); }
-    finally { operation.current = false; setBusy(false); }
-  }
-
-  return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile} /><main id="main" tabIndex={-1} className="workspace grid packing-layout">
-    <section className="panel packing-queue">
-      <SoundControls sound={sound} onReady={()=>scanRef.current?.focus()} />
-      <div className="row"><h2>คิวงานบด</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy} onClick={() => { if (operation.current) return; setFilter(""); selectJob(null); setVerifiedGrind(null); }}>แสดงทุกงาน</button></div>
-      <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{job?.status === "CLAIMED" ? `สแกนเบอร์บด ${job.grind_value_snapshot}` : "สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={(event) => setScan(event.target.value)} disabled={busy} /></form>
-      <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} /></section>
-      <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th></th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>#{item.queue_seq}</td><td>{item.product_name_snapshot}<br /><small>{item.sku_snapshot}</small></td><td>{item.size_grams_snapshot} g</td><td>{item.grind_value_snapshot}</td><td><span className="status">{jobStatusLabels[item.status]}</span></td><td><button className="button secondary" disabled={busy} onClick={() => selectJob(item.id)}>เปิดงาน</button></td></tr>)}</tbody></table>{!visible.length && <div className="empty">ไม่มีงานในคิวนี้</div>}</div>
-      <small>อัปเดตล่าสุด {lastSync || "กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
-    </section>
-    <aside className="panel packing-detail">
-      <h2>งานที่เลือก</h2>
-      <div className="detail-content">{job ? <>
-        <strong>คิว #{job.queue_seq} · {jobStatusLabels[job.status]}</strong>
-        <div className="product-name">{job.product_name_snapshot}</div>
-        <div className="product-size">{job.size_grams_snapshot} g · เบอร์ {job.grind_value_snapshot}</div>
-        {job.status==="CLAIMED" && <>
-          <div className={verifiedGrind?"notice success":"notice"}>{verifiedGrind?"ตรวจเบอร์บดแล้ว":"เลือกเบอร์บดด้านล่าง หรือสแกนบาร์โค้ด"}</div>
-          <div className="row" role="group" aria-label="เลือกเบอร์บด">
-            {grinds.filter(grind=>["6","8","10","12","15"].includes(grind.grind_value)).map(grind=><button type="button" className="button secondary" key={grind.id} disabled={busy} aria-pressed={verifiedGrind?.id===grind.id} onClick={()=>selectGrind(grind)}>เบอร์ {grind.grind_value}</button>)}
-          </div>
-          <div className="field"><label htmlFor="packing-grind-select">เลือกเบอร์บดเอง (5–17)</label><select id="packing-grind-select" className="select" disabled={busy} value={verifiedGrind?.id||""} onChange={event=>{
-            const chosen=grinds.find(grind=>grind.id===event.target.value);
-            if(chosen)selectGrind({...chosen,barcode:null});else setVerifiedGrind(null);
-          }}><option value="">เลือกเบอร์บด</option>{dropdownGrinds(grinds).map(grind=><option key={grind.id} value={grind.id}>เบอร์ {grind.grind_value}</option>)}</select></div>
-          {catalogError&&<div className="notice error" role="alert">{catalogError}<button className="button secondary" onClick={()=>void reloadCatalog()}>โหลดใหม่</button></div>}
-          <div className="field"><label htmlFor="grinder">คนบด</label><select id="grinder" className="select" disabled={busy} value={grinderId} onChange={event=>setGrinderId(event.target.value)}><option value="">เลือกคนบด</option>{grinders.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-        </>}
-      </> : <p>สแกนหรือเลือกงานจากคิว</p>}</div>
-      <div className="detail-actions">
-        {error&&<div role="alert" className="notice error">{error}</div>}
-        {action&&<button data-testid="job-action" className="button large" disabled={busy} onClick={()=>void transition()}>{busy?"กำลังบันทึก...":action.label}</button>}
-        <small>รอรับ {queuedCount} ถุง · เสียงเตือนดังซ้ำทุก 3 วินาที จนงานรอรับทั้งระบบเหลือ 0 ถุง</small>
-      </div>
-    </aside>
-  </main></div>;
+  void load();const timer=setInterval(()=>void load(),5000);
+  return()=>{active=false;clearInterval(timer);};
+ },[context,batchId,revision]);
+ async function choose(job:BagJob){
+  if(operation.current||pendingRef.current||recoveryError)return;
+  setError("");setMessage("");setGrind(null);setCandidates([]);setBatchId("");setBatchJobs([]);setContext(null);setOrderJobs([]);
+  if(job.status==="GRINDING"&&job.grinding_batch_id){setBatchId(job.grinding_batch_id);refocus();return;}
+  operation.current=true;setBusy(true);
+  try{const detail=await apiFetch<Queue>(`/api/jobs?orderId=${job.order_id}`);setOrderJobs(detail.jobs);setContext(job);queueRef.current?.scrollTo({top:0});}
+  catch(e){setError(e instanceof Error?e.message:"โหลดงานไม่สำเร็จ");}
+  finally{operation.current=false;setBusy(false);refocus();}
+ }
+ async function onScan(event:React.FormEvent){
+  event.preventDefault();const value=(scanRef.current?.value??scan).trim();
+  if(!value||!ready.current||operation.current||pendingRef.current||recoveryError||grind)return;
+  operation.current=true;setBusy(true);setError("");setMessage("");let single:BagJob|undefined;
+  try{
+   if(context&&context.status!=="GRINDING"){
+    const [result,latest]=await Promise.all([apiFetch<{grind:GrindLookup}>(`/api/catalog/grind/${encodeURIComponent(value)}`),apiFetch<Queue>(`/api/jobs?orderId=${context.order_id}`)]);
+    setOrderJobs(latest.jobs);
+    if(!latest.jobs.some(j=>groupKey(j)===groupKey(context)&&canStart(j)&&j.grind_id===result.grind.id))throw new Error("เบอร์บดไม่ตรงกับงานที่ยังรอรับของสินค้านี้");
+    setGrind(result.grind);
+   }else{
+    const result=await apiFetch<Queue>(`/api/jobs?scan=${encodeURIComponent(value)}`);
+    if(result.hasMore)throw new Error("พบงานจำนวนมาก กรุณาสแกนเลขคิวเพื่อระบุงานให้ชัดเจน");
+    const matching=result.jobs.filter(j=>canStart(j)||j.status==="GRINDING");
+    if(!matching.length)throw new Error("ไม่พบงานที่รับได้สำหรับบาร์โค้ดนี้");
+    const groups=[...new Map(matching.map(j=>[j.grinding_batch_id??(j.status==="GRINDING"?j.id:groupKey(j)),j])).values()];
+    setContext(null);setBatchId("");setBatchJobs([]);setCandidates(groups);if(groups.length===1)single=groups[0];
+   }
+   setScan("");sound.play("success");
+  }catch(e){setGrind(null);sound.play("error");setError(e instanceof Error?e.message:"สแกนไม่สำเร็จ");}
+  finally{operation.current=false;setBusy(false);if(single)void choose(single);else refocus();}
+ }
+ async function execute(request:Pending){
+  if(operation.current||recoveryError)return;
+  const saved=pendingRef.current??request;operation.current=true;setBusy(true);setError("");
+  try{
+   sessionStorage.setItem(storageKey,JSON.stringify(saved));pendingRef.current=saved;setPending(saved);
+   const result=await apiFetch<BatchResult>(saved.path,{method:"POST",body:saved.body});
+   if(!batchCompleteSchema.safeParse({clientRequestId:JSON.parse(saved.body).clientRequestId,batchId:result.batch?.batch_id}).success||!Array.isArray(result.batch?.bag_ids))throw new ApiError("ผลตอบกลับไม่ครบ กรุณายืนยันซ้ำด้วยข้อมูลเดิม",502);
+   sessionStorage.removeItem(storageKey);pendingRef.current=null;setPending(null);setGrind(null);setContext(null);setCandidates([]);setOrderJobs([]);
+   if(saved.path==="/api/jobs/start"){setBatchId(result.batch.batch_id);setMessage("ยืนยันแล้ว — กำลังบด");}
+   else{setBatchId("");setBatchJobs([]);setMessage("เสร็จสิ้น — จัดเก็บในประวัติแล้ว");}
+   sound.play("success");setRevision(n=>n+1);
+  }catch(e){
+   const rejected=e instanceof ApiError&&[400,409,422].includes(e.status);
+   if(rejected){sessionStorage.removeItem(storageKey);pendingRef.current=null;setPending(null);}
+   setError(rejected?e.message:"ยังยืนยันผลไม่ได้ กรุณายืนยันซ้ำด้วยข้อมูลเดิม ห้ามเปิดรายการซ้ำ");sound.play("error");
+  }finally{operation.current=false;setBusy(false);refocus();}
+ }
+ function start(quantity:number){
+  if(pendingRef.current){void execute(pendingRef.current);return;}
+  if(!context||!grind||!grinderId){setError("เลือกคนบดก่อนยืนยัน");return;}
+  const body=JSON.stringify({clientRequestId:crypto.randomUUID(),orderId:context.order_id,productBarcode:context.product_barcode_snapshot,grindId:grind.id,quantity,grinderUserId:grinderId});
+  if(!batchStartSchema.safeParse(JSON.parse(body)).success||quantity>available.length){setError("จำนวนเกินงานที่ยังรอรับ หรือข้อมูลไม่ถูกต้อง");return;}
+  void execute({path:"/api/jobs/start",body,description:`${orderNo(context)} · ${context.product_name_snapshot} · เบอร์ ${grind.grind_value} · ${quantity} ถุง`});
+ }
+ async function selectManualGrind(id:string){
+  if(!context||operation.current||pendingRef.current)return;
+  const chosen=grinds.find(g=>g.id===id);if(!chosen)return;
+  operation.current=true;setBusy(true);setError("");
+  try{const latest=await apiFetch<Queue>(`/api/jobs?orderId=${context.order_id}`);setOrderJobs(latest.jobs);
+   if(!latest.jobs.some(j=>groupKey(j)===groupKey(context)&&canStart(j)&&j.grind_id===id))throw new Error("ไม่มีถุงรอรับสำหรับเบอร์นี้แล้ว");
+   setGrind({...chosen,barcode:null});
+  }catch(e){setError(e instanceof Error?e.message:"เลือกเบอร์บดไม่สำเร็จ");}
+  finally{operation.current=false;setBusy(false);refocus();}
+ }
+ function clearSelection(){if(operation.current||pendingRef.current)return;setContext(null);setCandidates([]);setBatchId("");setBatchJobs([]);setGrind(null);setScan("");setError("");refocus();}
+ async function completeLegacy(){
+  if(!context||context.status!=="GRINDING"||operation.current||pendingRef.current)return;
+  operation.current=true;setBusy(true);setError("");
+  try{await apiFetch(`/api/jobs/${context.id}/transition`,{method:"POST",body:JSON.stringify({expectedStatus:"GRINDING",nextStatus:"COMPLETED"})});setContext(null);setMessage("เสร็จสิ้นรายการเดิมแล้ว");}
+  catch(e){setError(e instanceof Error?e.message:"ยืนยันผลไม่สำเร็จ กรุณาตรวจสถานะแล้วลองใหม่");}
+  finally{setRevision(n=>n+1);operation.current=false;setBusy(false);refocus();}
+ }
+ const visibleRows=[...new Map(jobs.map(j=>[j.grinding_batch_id??j.id,j])).values()];
+ const canCompleteBatch=batchJobs.length>0&&batchJobs.every(j=>j.status==="GRINDING"&&j.claimed_by===profile.id);
+ return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile}/><main id="main" tabIndex={-1} className="workspace grid packing-layout">
+  <section ref={queueRef} className="panel packing-queue"><SoundControls sound={sound} onReady={refocus}/>
+   <div className="row"><h2>คิวงานบด</h2><Link className="button secondary" href="/packing/new">เปิดออเดอร์เอง</Link><button className="button secondary" disabled={busy||!!pending} onClick={clearSelection}>สแกนสินค้าใหม่</button></div>
+   {context&&<div className="product-result"><div><strong className="product-name">{context.product_name_snapshot}</strong><div>{context.sku_snapshot} · {orderNo(context)}</div></div><strong>{context.size_grams_snapshot} g</strong></div>}
+   <form className="field" onSubmit={onScan}><label htmlFor="packing-scan">{context&&context.status!=="GRINDING"?"ตรวจชื่อสินค้าแล้ว สแกนเบอร์บด":"สแกน Product Barcode / เลขคิว"}</label><input ref={scanRef} id="packing-scan" className="input scan-input" autoFocus autoComplete="off" value={scan} onChange={e=>setScan(e.target.value)} disabled={busy||!!pending||!!grind||recoveryError}/></form>
+   <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog}/></section>
+   {hasMore&&<div className="notice">แสดง 1,000 ถุงแรก — สแกนบาร์โค้ดหรือเลขคิวเพื่อค้นหางานที่เหลือ</div>}
+   <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>สินค้า / ออเดอร์</th><th>ขนาด</th><th>เบอร์บด</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{visibleRows.map(j=><tr key={j.grinding_batch_id??j.id}><td>#{j.queue_seq}</td><td>{j.product_name_snapshot}<br/><small>{j.sku_snapshot} · {orderNo(j)}</small></td><td>{j.size_grams_snapshot} g</td><td>{j.grind_value_snapshot}</td><td><span className={`status ${j.status==="QUEUED"?"warn":"info"}`}>{jobStatusLabels[j.status]}</span>{j.grinding_batch_id&&<small> · ชุดงาน</small>}</td><td><button className="button secondary" disabled={busy||!!pending||recoveryError} onClick={()=>void choose(j)}>เปิดงาน</button></td></tr>)}</tbody></table>{!jobs.length&&<div className="empty">ไม่มีงานในคิวนี้</div>}</div>
+   <small>อัปเดตล่าสุด {lastSync||"กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
+  </section>
+  <aside className="panel packing-detail"><h2>{batchId?"กำลังบด":"งานที่เลือก"}</h2><div className="detail-content">
+   {candidates.length>1&&<><div className="notice">สินค้านี้มีหลายงาน กรุณาเลือกออเดอร์ก่อนสแกนเบอร์บด</div>{candidates.map(j=><button key={j.grinding_batch_id??(j.status==="GRINDING"?j.id:groupKey(j))} className="button secondary" disabled={busy||!!pending} onClick={()=>void choose(j)}>{orderNo(j)} · คิว #{j.queue_seq} · {j.product_name_snapshot} · {jobStatusLabels[j.status]}</button>)}</>}
+   {context&&<><strong>{orderNo(context)}</strong><div className="product-name">{context.product_name_snapshot}</div><div>{context.sku_snapshot} · {context.size_grams_snapshot} g</div><div className="notice">สแกนเบอร์บด จากนั้นระบุจำนวนถุงเพื่อเข้าสถานะกำลังบด</div><div>เบอร์ที่รอรับ: {[...new Set(orderJobs.filter(j=>groupKey(j)===groupKey(context)&&canStart(j)).map(j=>j.grind_value_snapshot))].join(", ")||"ไม่มี"}</div></>}
+   {context&&context.status!=="GRINDING"&&<div className="field"><label htmlFor="packing-grind-select">เลือกเบอร์บดเอง (กรณีไม่มีบาร์โค้ด)</label><select id="packing-grind-select" className="select" value="" disabled={busy||!!pending} onChange={e=>void selectManualGrind(e.target.value)}><option value="">เลือกเบอร์บด</option>{grinds.filter(g=>orderJobs.some(j=>groupKey(j)===groupKey(context)&&canStart(j)&&j.grind_id===g.id)).map(g=><option value={g.id} key={g.id}>เบอร์ {g.grind_value}</option>)}</select></div>}
+   {batchId&&<><strong>{batchJobs[0]?orderNo(batchJobs[0]):"กำลังโหลดชุดงาน..."} · {batchJobs.length} ถุง</strong>{batchJobs.map(j=><div className="notice" key={j.id}>{j.product_name_snapshot}<br/>{j.size_grams_snapshot} g · เบอร์ {j.grind_value_snapshot} · {j.grinder_name_snapshot}</div>)}</>}
+   {!context&&!batchId&&!candidates.length&&<p>สแกนถุงเพื่อดึงงาน ตรวจชื่อสินค้า แล้วสแกนเบอร์บด</p>}
+  </div><div className="detail-actions">
+   {error&&<div className="notice error" role="alert">{error}</div>}{message&&<div className="notice success" role="status">{message}</div>}
+   {pending&&!grind&&<div className="notice"><div>{pending.description}</div><button className="button" disabled={busy} onClick={()=>void execute(pending)}>ยืนยันรายการค้างด้วยข้อมูลเดิม</button></div>}
+   {context?.status==="GRINDING"&&!context.grinding_batch_id&&<button className="button large" disabled={busy||!!pending} onClick={()=>void completeLegacy()}>เสร็จสิ้นรายการเดิม</button>}
+   {batchId&&<button data-testid="job-action" className="button large" disabled={busy||!!pending||!canCompleteBatch} onClick={()=>void execute({path:"/api/jobs/complete",body:JSON.stringify({clientRequestId:crypto.randomUUID(),batchId}),description:`เสร็จสิ้นชุดงาน ${batchJobs.length} ถุง`})}>เสร็จสิ้น {batchJobs.length} ถุง</button>}
+   {batchJobs.length>0&&!canCompleteBatch&&<small>ผู้รับงานชุดนี้ต้องเป็นผู้ยืนยันเสร็จสิ้น</small>}
+   <small>รอรับ {queuedCount} ถุง · เสียงเตือนดังซ้ำทุก 3 วินาที จนงานรอรับทั้งระบบเหลือ 0 ถุง</small>
+  </div></aside>
+  {grind&&context&&<QuantityDialog title="ยืนยันจำนวนเพื่อเริ่มบด" description={`${orderNo(context)} · ${context.product_name_snapshot} · ${context.size_grams_snapshot} g · เบอร์ ${grind.grind_value}`} max={pending?99:Math.min(99,available.length)} locked={!!pending} busy={busy} error={error} onConfirm={start} onCancel={()=>{if(pendingRef.current){setError("ต้องยืนยันรายการค้างก่อน");return;}setGrind(null);setError("");refocus();}}>
+   <div className="field"><label htmlFor="grinder">คนบด</label><select id="grinder" className="select" required disabled={busy||!!pending} value={grinderId} onChange={e=>setGrinderId(e.target.value)}><option value="">เลือกคนบด</option>{grinders.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
+   {pending&&<div className="notice">ยืนยันซ้ำด้วยจำนวนและคนบดเดิมเท่านั้น: {pending.description}</div>}
+  </QuantityDialog>}
+ </main></div>;
 }

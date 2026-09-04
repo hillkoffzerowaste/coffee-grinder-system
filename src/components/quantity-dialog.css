@@ -1,0 +1,70 @@
+.quantity-dialog {
+  box-sizing: border-box;
+  width: min(460px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 24px;
+  overflow: auto;
+  border: 1px solid var(--border, #9babab);
+  border-radius: 5px;
+  background: var(--surface, #fff);
+  color: var(--text, #162323);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 24%);
+  font-family: inherit;
+  overflow-wrap: anywhere;
+}
+
+.quantity-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.quantity-dialog__title { margin: 0 0 8px; font-size: 1.25rem; font-weight: 600; }
+.quantity-dialog__description { margin: 0 0 20px; color: var(--muted, #536565); }
+.quantity-dialog__fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.quantity-dialog__field { display: grid; gap: 6px; }
+.quantity-dialog__field label { font-weight: 600; }
+.quantity-dialog__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #9babab);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 1.25rem;
+}
+.quantity-dialog__range { color: var(--muted, #536565); }
+.quantity-dialog__children { margin-top: 16px; }
+.quantity-dialog__error {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger, #a61b1b);
+  border-radius: 4px;
+  background: var(--danger-bg, #fff0f0);
+  color: var(--danger, #a61b1b);
+}
+.quantity-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #9babab);
+}
+.quantity-dialog__button {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--brand-strong, #046864);
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quantity-dialog__button--cancel { background: var(--surface, #fff); color: var(--brand-strong, #046864); }
+.quantity-dialog__button--confirm { background: var(--brand-strong, #046864); color: #fff; }
+.quantity-dialog__button--cancel:hover:not(:disabled) { background: var(--surface-subtle, #eaf1f1); }
+.quantity-dialog__button--confirm:hover:not(:disabled) { filter: brightness(.9); }
+.quantity-dialog :focus-visible { outline: 3px solid var(--focus, #006b73); outline-offset: 2px; }
+.quantity-dialog__input:disabled { background: var(--surface-subtle, #eaf1f1); }
+.quantity-dialog__button:disabled { opacity: .55; cursor: not-allowed; }

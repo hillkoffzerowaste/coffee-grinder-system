@@ -32,6 +32,7 @@ export function useScannerInput(ref: RefObject<HTMLInputElement | null>, setValu
 export function useScannerFocus(ref: RefObject<HTMLInputElement | null>, unavailable = false) {
   useEffect(() => {
     const focus = () => {
+      if (unavailable || document.querySelector("dialog[open]")) return;
       const input = ref.current;
       if (input && input.isConnected && !input.disabled) input.focus({ preventScroll: true });
     };

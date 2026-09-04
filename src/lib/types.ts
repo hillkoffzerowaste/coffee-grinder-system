@@ -35,6 +35,11 @@ export interface DraftLine {
 
 export interface BagJob {
   id: string;
+  order_id: string;
+  grind_id: string;
+  claimed_by?: string | null;
+  grinding_batch_id?: string | null;
+  orders?: { order_no: string } | null;
   bag_no: number;
   queue_seq: number;
   status: JobStatus;

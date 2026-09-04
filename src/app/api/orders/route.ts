@@ -23,6 +23,9 @@ export async function POST(request:Request) {
  const auth=await requireApiUser();if(auth.error)return auth.error;
  const parsed=orderSchema.safeParse(await request.json().catch(()=>null));
  if(!parsed.success)return NextResponse.json({error:"ข้อมูลออเดอร์ไม่ถูกต้อง"},{status:400});
- try{const [row]=await readRows(auth.profile.id,"select coffee.create_order($1,$2,$3::jsonb) as result",[parsed.data.clientRequestId,parsed.data.source,JSON.stringify(parsed.data.lines)]);
+ if(parsed.data.source==="PACKING_MANUAL"&&!parsed.data.grinderUserId)return NextResponse.json({error:"เลือกคนบดก่อนยืนยันออเดอร์"},{status:400});
+ try{const [row]=parsed.data.source==="PACKING_MANUAL"
+  ?await readRows(auth.profile.id,"select coffee.create_grinding_order($1,$2::jsonb,$3) as result",[parsed.data.clientRequestId,JSON.stringify(parsed.data.lines),parsed.data.grinderUserId])
+  :await readRows(auth.profile.id,"select coffee.create_order($1,$2,$3::jsonb) as result",[parsed.data.clientRequestId,parsed.data.source,JSON.stringify(parsed.data.lines)]);
  return NextResponse.json({order:row.result},{status:201});} catch(error) { const e=databaseError(error); return NextResponse.json({error:e.message},{status:e.status}); }
 }

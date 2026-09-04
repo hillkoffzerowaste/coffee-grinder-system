@@ -9,6 +9,7 @@ export const loginSchema = z.object({
 export const orderSchema = z.object({
   clientRequestId: z.uuid(),
   source: z.enum(["COUNTER", "PACKING_MANUAL"]),
+  grinderUserId: z.uuid().optional(),
   lines: z.array(z.object({
     clientLineId: z.string().min(1).max(100),
     productId: z.uuid(),
@@ -20,6 +21,12 @@ export const orderSchema = z.object({
     .refine((lines) => new Set(lines.map((line) => line.clientLineId)).size === lines.length, "Duplicate line identifiers")
     .refine((lines) => lines.reduce((total, line) => total + line.quantity, 0) <= 500, "Maximum 500 bags per order"),
 });
+
+export const batchStartSchema = z.object({
+  clientRequestId:z.uuid(),orderId:z.uuid(),productBarcode:z.string().regex(/^\d{4,32}$/),
+  grindId:z.uuid(),quantity:z.number().int().min(1).max(99),grinderUserId:z.uuid(),
+}).strict();
+export const batchCompleteSchema = z.object({clientRequestId:z.uuid(),batchId:z.uuid()}).strict();
 
 export const transitionSchema = z.object({
   expectedStatus: z.enum(["QUEUED", "CLAIMED", "GRINDING", "BLOCKED"]),
