@@ -11,6 +11,7 @@ begin
   if b.id is null then raise exception 'Job not found'; end if;
   if b.status is distinct from p_expected_status then raise exception 'Status changed; refresh and retry'; end if;
   if p_next_status is null then raise exception 'Invalid transition'; end if;
+  if b.status=p_next_status then raise exception 'Invalid transition'; end if;
   allowed := (b.status,p_next_status) in (('QUEUED','CLAIMED'),('CLAIMED','GRINDING'),('GRINDING','COMPLETED'));
   if allowed is not true and not (actor.role='admin' and p_next_status in ('BLOCKED','CANCELLED') and b.status not in ('COMPLETED','CANCELLED')) then raise exception 'Invalid transition'; end if;
   if b.claimed_by is not null and b.claimed_by<>actor.id and actor.role<>'admin' then raise exception 'Job owned by another operator'; end if;

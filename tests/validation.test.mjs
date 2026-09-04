@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { orderSchema, loginSchema, transitionSchema, pendingOrderSchema } from '../src/lib/validation.ts';
 import {dropdownGrinds} from '../src/lib/grind-options.ts';
 import { canUseStation } from '../src/lib/permissions.ts';
+import { jobStatusLabels } from '../src/lib/job-status.ts';
 
 const line = { clientLineId:'one', productId:randomUUID(), productBarcode:'001234567890123456789', grindId:randomUUID(), grindBarcode:'990006', quantity:1 };
 const order = { clientRequestId:randomUUID(), source:'COUNTER', lines:[line] };
@@ -41,6 +42,13 @@ test('only the new grinding completion transition is accepted', () => {
     assert.equal(transitionSchema.safeParse({expectedStatus:'GRINDING',nextStatus}).success,false);
   }
   assert.equal(transitionSchema.safeParse({expectedStatus:'GROUND',nextStatus:'PACKING'}).success,false);
+});
+test('legacy history statuses retain Thai labels', () => {
+  assert.equal(jobStatusLabels.GROUND,'บดเสร็จ');
+  assert.equal(jobStatusLabels.PACKING,'กำลังแพ็ค');
+});
+test('transition validation rejects same-status admin requests', () => {
+  assert.equal(transitionSchema.safeParse({expectedStatus:'BLOCKED',nextStatus:'BLOCKED'}).success,false);
 });
 test('station access requires compatible role, assigned station and active account', () => {
   for (const role of ['counter','packer','admin']) {

@@ -30,7 +30,8 @@ export const transitionSchema = z.object({
   const normal = (transition.expectedStatus === "QUEUED" && transition.nextStatus === "CLAIMED")
     || (transition.expectedStatus === "CLAIMED" && transition.nextStatus === "GRINDING")
     || (transition.expectedStatus === "GRINDING" && transition.nextStatus === "COMPLETED");
-  const adminOnly = ["BLOCKED","CANCELLED"].includes(transition.nextStatus);
+  const adminOnly = ["BLOCKED","CANCELLED"].includes(transition.nextStatus)
+    && transition.expectedStatus !== transition.nextStatus;
   if (!normal && !adminOnly) ctx.addIssue({code:"custom",message:"Invalid transition"});
 });
 

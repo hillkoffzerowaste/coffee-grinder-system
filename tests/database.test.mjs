@@ -106,6 +106,13 @@ test('database migrations and operational invariants', async (t) => {
     assert.equal((await db.query('select status from orders where id=$1',[cancelledOrder.id])).rows[0].status,'CANCELLED');
     assert.equal((await db.query('select status from print_jobs where bag_id=$1',[cancelledBag.id])).rows[0].status,'CANCELLED');
   });
+  await t.test('SQL rejects same-status admin transitions', async () => {
+    await as(counter); const blockedOrder = await create(randomUUID(),[{...lines[0],quantity:1}]);
+    const [blockedBag] = (await db.query('select * from bags where order_id=$1',[blockedOrder.id])).rows;
+    await as(admin);
+    await transition(blockedBag.id,'QUEUED','BLOCKED');
+    await assert.rejects(transition(blockedBag.id,'BLOCKED','BLOCKED'),/Invalid transition/);
+  });
   await t.test('SQL rejects missing parameters and empty lines', async () => {
     await as(counter);
     await assert.rejects(create(null),/Invalid request id/);
@@ -124,7 +131,7 @@ test('database migrations and operational invariants', async (t) => {
     await assert.rejects(db.exec("update bags set status='COMPLETED'"),/permission denied/);
     assert.equal((await db.query('select * from orders')).rows.length,0);
     await as(packer);
-    assert.equal((await db.query('select * from orders')).rows.length,2);
+    assert.equal((await db.query('select * from orders')).rows.length,3);
     assert.equal((await db.query('select * from audit_log')).rows.length,0);
     await as(admin);
     assert.ok((await db.query('select * from audit_log')).rows.length > 0);
