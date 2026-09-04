@@ -117,6 +117,32 @@ test('order monitor shows queued wait summary and overdue warning',async()=>{
  } finally {await unmount();globalThis.fetch=originalFetch;}
 });
 
+test('monitor moves completed work out of active view, colors history and clears selection',async(t)=>{
+ t.mock.timers.enable({apis:['setInterval']});
+ const originalFetch=globalThis.fetch;
+ let completed=false;
+ const item={id:'order-moving',order_no:'HK-MOVING',total_bags:1,status:'OPEN',queued_count:1,active_count:0,completed_count:0,oldest_queued_at:null,overdue_queued_count:0,progress:{QUEUED:1}};
+ globalThis.fetch=async(url)=>{
+  if(url.startsWith('/api/orders?view=history'))return json({orders:[{...item,status:'COMPLETED',queued_count:0,completed_count:1,progress:{COMPLETED:1}}]});
+  if(url==='/api/orders')return json({orders:completed?[]:[item]});
+  return json({bags:[]});
+ };
+ const unmount=await mount(OrderMonitor);
+ try{
+  assert.ok(document.querySelector('.order-waiting'));
+  assert.ok(document.querySelector('.status.warn'));
+  await clickText('HK-MOVING');
+  assert.ok(document.body.textContent.includes('ไม่มีรายละเอียดถุง'));
+  completed=true;await act(async()=>t.mock.timers.tick(2000));
+  assert.ok(!document.body.textContent.includes('HK-MOVING'));
+  await clickText('ประวัติ');
+  assert.ok(document.querySelector('.order-done'));
+  assert.ok(document.querySelector('.status.ok'));
+  assert.equal(document.querySelector('[aria-expanded="true"]'),null);
+  await clickText('งานค้าง');assert.ok(!document.body.textContent.includes('HK-MOVING'));
+ }finally{await unmount();globalThis.fetch=originalFetch;}
+});
+
 test('admin reset validates confirmation, blocks duplicate submits and clears secrets',async()=>{
  const originalFetch=globalThis.fetch;const calls=[];const pending=deferred();
  globalThis.fetch=async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return pending.promise;};

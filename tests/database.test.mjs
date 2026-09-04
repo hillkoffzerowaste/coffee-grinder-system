@@ -4,6 +4,30 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 
+test('order list SQL separates active/history before pagination and reports queued SLA',async()=>{
+ const db=new PGlite();
+ try{
+  await db.exec(`create schema coffee;
+   create table coffee.orders(id int primary key,order_no text,source text,status text,total_bags int,created_at timestamptz);
+   create table coffee.bags(order_id int,status text,created_at timestamptz);
+   insert into coffee.orders select n,'HK-'||n,'COUNTER',case when n<=55 then 'OPEN' else 'COMPLETED' end,1,now() from generate_series(1,110) n;
+   insert into coffee.bags values(55,'QUEUED',now()-interval '2 minutes');`);
+  const source=await readFile('src/app/api/orders/route.ts','utf8');
+  const sql=/readRows\(auth.profile.id,`([\s\S]*?)`/.exec(source)?.[1];
+  assert.ok(sql,'test executes the actual route query');
+  const active=(await db.query(sql,[true,0])).rows;
+  const history=(await db.query(sql,[false,0])).rows;
+  assert.equal(active.length,51);assert.ok(active.every(o=>o.status==='OPEN'));
+  assert.equal(history.length,51);assert.ok(history.every(o=>o.status==='COMPLETED'));
+  assert.equal(active[0].overdue_queued_count,1);
+  const second=(await db.query(sql,[false,50])).rows;
+  assert.equal(second.length,5);
+  assert.equal(new Set([...history.slice(0,50),...second].map(o=>o.id)).size,55);
+  await db.exec("update coffee.orders set status='COMPLETED' where id=55");
+  assert.ok(!(await db.query(sql,[true,0])).rows.some(o=>o.id===55));
+ }finally{await db.close();}
+});
+
 test('database migrations and operational invariants', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());

@@ -33,7 +33,7 @@ export function useScannerFocus(ref: RefObject<HTMLInputElement | null>, unavail
   useEffect(() => {
     const focus = () => {
       const input = ref.current;
-      if (input && input.isConnected && !input.disabled) input.focus();
+      if (input && input.isConnected && !input.disabled) input.focus({ preventScroll: true });
     };
     const scheduleFocus = () => queueMicrotask(focus);
     const onClick = (event: MouseEvent) => {

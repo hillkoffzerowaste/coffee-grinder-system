@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:layout": "node tests/layout-regressions.mjs",
     "test": "node --import tsx --test tests/database.test.mjs tests/validation.test.mjs tests/api-regressions.test.mjs tests/client-regressions.test.mjs tests/auth-neon.test.mjs"
   },
   "dependencies": {
