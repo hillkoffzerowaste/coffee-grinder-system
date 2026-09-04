@@ -1,0 +1,257 @@
+-- Run once in a new Supabase project. Do not expose the service-role key to clients.
+create extension if not exists pgcrypto;
+create sequence public.order_number_seq;
+create sequence public.queue_number_seq;
+
+create table public.profiles (
+  id uuid primary key references auth.users(id),
+  username text not null unique check (username ~ '^[a-z0-9._-]{2,60}$'),
+  display_name text not null,
+  role text not null check (role in ('counter','packer','admin')),
+  station text not null check (station in ('counter','packing','both')),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create table public.products (
+  id uuid primary key default gen_random_uuid(),
+  sku text not null unique,
+  name text not null,
+  size_grams integer not null check (size_grams >= 200),
+  unit text not null default 'Pcs',
+  product_type text not null default 'BEANS' check (product_type = 'BEANS'),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create table public.product_barcodes (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id),
+  barcode text not null unique check (barcode ~ '^[0-9]{4,32}$'),
+  barcode_type text not null default 'PRODUCT' check (barcode_type = 'PRODUCT'),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create table public.grind_size_codes (
+  id uuid primary key default gen_random_uuid(),
+  grind_value text not null unique,
+  barcode text not null unique check (barcode ~ '^[0-9]{1,32}$'),
+  active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create table public.grinder_users (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create table public.orders (
+  id uuid primary key default gen_random_uuid(),
+  order_no text not null unique default ('HK-' || lpad(nextval('public.order_number_seq')::text,8,'0')),
+  client_request_id uuid not null unique,
+  request_payload jsonb not null,
+  source text not null check (source in ('COUNTER','PACKING_MANUAL')),
+  status text not null default 'OPEN' check (status in ('OPEN','COMPLETED','CANCELLED')),
+  total_bags integer not null check (total_bags > 0),
+  created_by uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+create table public.order_items (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id),
+  product_id uuid not null references public.products(id),
+  grind_id uuid not null references public.grind_size_codes(id),
+  quantity integer not null check (quantity between 1 and 99),
+  client_line_id text not null,
+  unique(order_id,client_line_id)
+);
+create table public.bags (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id),
+  order_item_id uuid not null references public.order_items(id),
+  product_id uuid not null references public.products(id),
+  grind_id uuid not null references public.grind_size_codes(id),
+  bag_no integer not null,
+  queue_seq bigint not null unique default nextval('public.queue_number_seq'),
+  status text not null default 'QUEUED' check (status in ('QUEUED','CLAIMED','GRINDING','GROUND','PACKING','COMPLETED','BLOCKED','CANCELLED')),
+  product_name_snapshot text not null,
+  sku_snapshot text not null,
+  size_grams_snapshot integer not null,
+  product_barcode_snapshot text not null,
+  grind_value_snapshot text not null,
+  grinder_user_id uuid references public.grinder_users(id),
+  grinder_name_snapshot text,
+  claimed_by uuid references public.profiles(id),
+  lease_until timestamptz,
+  started_at timestamptz,
+  ground_at timestamptz,
+  completed_at timestamptz,
+  version integer not null default 1,
+  created_at timestamptz not null default now(),
+  unique(order_id,bag_no)
+);
+create index bags_status_queue_idx on public.bags(status,queue_seq);
+create index bags_order_idx on public.bags(order_id);
+create index bags_barcode_idx on public.bags(product_barcode_snapshot,status);
+create table public.job_events (
+  id uuid primary key default gen_random_uuid(),
+  bag_id uuid not null references public.bags(id),
+  from_status text,
+  to_status text not null,
+  actor_id uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+create table public.print_jobs (
+  id uuid primary key default gen_random_uuid(),
+  bag_id uuid not null references public.bags(id),
+  payload jsonb not null,
+  status text not null default 'PENDING' check (status in ('PENDING','PRINTING','PRINTED','FAILED','VERIFY_REQUIRED','CANCELLED')),
+  attempts integer not null default 0,
+  agent_id text,
+  lease_until timestamptz,
+  last_error text,
+  printed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index print_pending_idx on public.print_jobs(status,created_at);
+create table public.outbox_events (
+  id uuid primary key default gen_random_uuid(),
+  event_type text not null,
+  aggregate_id uuid not null,
+  payload jsonb not null,
+  created_at timestamptz not null default now()
+);
+create table public.audit_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references public.profiles(id),
+  action text not null,
+  entity text not null,
+  entity_id text,
+  details jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+create table public.app_settings (
+  id uuid primary key default gen_random_uuid(),
+  key text not null unique,
+  value jsonb not null,
+  description text,
+  created_at timestamptz not null default now()
+);
+
+create function public.is_active_user() returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from profiles where id=auth.uid() and active);
+$$;
+create function public.is_admin() returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from profiles where id=auth.uid() and active and role='admin');
+$$;
+
+alter table public.profiles enable row level security;
+create policy profiles_read on public.profiles for select to authenticated using (id=auth.uid() or public.is_admin());
+do $$ declare t text; begin
+  foreach t in array array['products','product_barcodes','grind_size_codes','grinder_users','orders','order_items','bags','job_events','print_jobs','outbox_events','app_settings'] loop
+    execute format('alter table public.%I enable row level security',t);
+    execute format('create policy read_authenticated on public.%I for select to authenticated using (public.is_active_user())',t);
+    execute format('revoke insert, update, delete on public.%I from authenticated, anon',t);
+  end loop;
+end $$;
+alter table public.audit_log enable row level security;
+create policy audit_admin on public.audit_log for select to authenticated using (public.is_admin());
+revoke insert,update,delete on public.profiles, public.audit_log from authenticated,anon;
+
+create function public.create_order(p_client_request_id uuid, p_source text, p_lines jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  actor profiles; existing orders; new_order orders; p products; g grind_size_codes;
+  line jsonb; item_id uuid; bag_row bags; q integer; total integer := 0; bag_index integer := 0; n integer;
+begin
+  select * into actor from profiles where id=auth.uid() and active;
+  if actor.id is null then raise exception 'UNAUTHORIZED'; end if;
+  if p_source not in ('COUNTER','PACKING_MANUAL') then raise exception 'Invalid source'; end if;
+  if actor.role='counter' and p_source<>'COUNTER' then raise exception 'FORBIDDEN'; end if;
+  if actor.role='packer' and p_source<>'PACKING_MANUAL' then raise exception 'FORBIDDEN'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_client_request_id::text,0));
+  select * into existing from orders where client_request_id=p_client_request_id;
+  if found then
+    if existing.created_by<>actor.id or existing.request_payload<>p_lines or existing.source<>p_source then raise exception 'Idempotency payload mismatch'; end if;
+    return to_jsonb(existing)-'request_payload';
+  end if;
+  if jsonb_typeof(p_lines)<>'array' or jsonb_array_length(p_lines) not between 1 and 100 then raise exception 'Invalid lines'; end if;
+  for line in select value from jsonb_array_elements(p_lines) loop
+    q := (line->>'quantity')::integer;
+    if q is null or q not between 1 and 99 then raise exception 'Invalid quantity'; end if;
+    total := total+q;
+  end loop;
+  if total>500 then raise exception 'Maximum 500 bags per order'; end if;
+  insert into orders(client_request_id,request_payload,source,total_bags,created_by)
+    values(p_client_request_id,p_lines,p_source,total,actor.id) returning * into new_order;
+  for line in select value from jsonb_array_elements(p_lines) loop
+    select pr.* into p from products pr join product_barcodes pb on pb.product_id=pr.id
+      where pr.id=(line->>'productId')::uuid and pr.active and pr.size_grams>=200 and pb.barcode=line->>'productBarcode' and pb.active;
+    if p.id is null then raise exception 'Product inactive or barcode mismatch'; end if;
+    select * into g from grind_size_codes where id=(line->>'grindId')::uuid and barcode=line->>'grindBarcode' and active;
+    if g.id is null then raise exception 'Grind inactive or barcode mismatch'; end if;
+    q := (line->>'quantity')::integer;
+    insert into order_items(order_id,product_id,grind_id,quantity,client_line_id)
+      values(new_order.id,p.id,g.id,q,line->>'clientLineId') returning id into item_id;
+    for n in 1..q loop
+      bag_index := bag_index+1;
+      insert into bags(order_id,order_item_id,product_id,grind_id,bag_no,product_name_snapshot,sku_snapshot,size_grams_snapshot,product_barcode_snapshot,grind_value_snapshot)
+        values(new_order.id,item_id,p.id,g.id,bag_index,p.name,p.sku,p.size_grams,line->>'productBarcode',g.grind_value) returning * into bag_row;
+      insert into job_events(bag_id,to_status,actor_id) values(bag_row.id,'QUEUED',actor.id);
+      insert into print_jobs(bag_id,payload) values(bag_row.id,to_jsonb(bag_row)||jsonb_build_object('order_no',new_order.order_no));
+    end loop;
+  end loop;
+  insert into outbox_events(event_type,aggregate_id,payload) values('ORDER_CREATED',new_order.id,jsonb_build_object('order_id',new_order.id));
+  insert into audit_log(actor_id,action,entity,entity_id) values(actor.id,'CREATE','orders',new_order.id::text);
+  return to_jsonb(new_order)-'request_payload';
+end $$;
+
+create function public.transition_bag(p_bag_id uuid,p_expected_status text,p_next_status text,p_grinder_user_id uuid default null,p_grind_id uuid default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare actor profiles; b bags; grinder grinder_users; allowed boolean;
+begin
+  select * into actor from profiles where id=auth.uid() and active and role in ('packer','admin');
+  if actor.id is null then raise exception 'FORBIDDEN'; end if;
+  select * into b from bags where id=p_bag_id for update;
+  if b.id is null then raise exception 'Job not found'; end if;
+  if b.status<>p_expected_status then raise exception 'Status changed; refresh and retry'; end if;
+  allowed := (b.status,p_next_status) in (('QUEUED','CLAIMED'),('CLAIMED','GRINDING'),('GRINDING','GROUND'),('GROUND','PACKING'),('PACKING','COMPLETED'));
+  if not allowed and not (actor.role='admin' and p_next_status in ('BLOCKED','CANCELLED') and b.status not in ('COMPLETED','CANCELLED')) then raise exception 'Invalid transition'; end if;
+  if b.claimed_by is not null and b.claimed_by<>actor.id and actor.role<>'admin' then raise exception 'Job owned by another operator'; end if;
+  if p_next_status='CLAIMED' and actor.role<>'admin' and exists(select 1 from bags where status='QUEUED' and queue_seq<b.queue_seq) then raise exception 'Please process the earliest queue first'; end if;
+  if p_next_status='GRINDING' then
+    if p_grind_id is null or p_grind_id<>b.grind_id then raise exception 'Grind mismatch'; end if;
+    select * into grinder from grinder_users where id=p_grinder_user_id and active;
+    if grinder.id is null then raise exception 'Select active grinder'; end if;
+  end if;
+  update bags set status=p_next_status, version=version+1,
+    claimed_by=case when p_next_status='CLAIMED' then actor.id when p_next_status='GROUND' then null else claimed_by end,
+    lease_until=case when p_next_status='CLAIMED' then now()+interval '5 minutes' else null end,
+    grinder_user_id=case when p_next_status='GRINDING' then grinder.id else grinder_user_id end,
+    grinder_name_snapshot=case when p_next_status='GRINDING' then grinder.name else grinder_name_snapshot end,
+    started_at=case when p_next_status='GRINDING' then now() else started_at end,
+    ground_at=case when p_next_status='GROUND' then now() else ground_at end,
+    completed_at=case when p_next_status='COMPLETED' then now() else completed_at end
+    where id=b.id;
+  insert into job_events(bag_id,from_status,to_status,actor_id) values(b.id,b.status,p_next_status,actor.id);
+  insert into outbox_events(event_type,aggregate_id,payload) values('BAG_CHANGED',b.id,jsonb_build_object('status',p_next_status));
+  if not exists(select 1 from bags where order_id=b.order_id and status not in ('COMPLETED','CANCELLED')) then
+    update orders set status=case when exists(select 1 from bags where order_id=b.order_id and status='COMPLETED') then 'COMPLETED' else 'CANCELLED' end where id=b.order_id;
+  end if;
+  select * into b from bags where id=b.id;
+  return to_jsonb(b);
+end $$;
+
+revoke all on function public.create_order(uuid,text,jsonb) from public,anon;
+grant execute on function public.create_order(uuid,text,jsonb) to authenticated;
+revoke all on function public.transition_bag(uuid,text,text,uuid,uuid) from public,anon;
+grant execute on function public.transition_bag(uuid,text,text,uuid,uuid) to authenticated;
+
+insert into public.grind_size_codes(grind_value,barcode,sort_order) values
+  ('6','990006',6),('8','990008',8),('10','990010',10),('12','990012',12),('15','990015',15);
+insert into public.app_settings(key,value,description) values
+  ('queue_sla_minutes','15','SLA ต่อถุง (นาที)'),
+  ('station_name','"ห้องแพ็ค"','ชื่อสถานี');
+
+-- Enable database change notifications for optional Realtime clients.
+alter publication supabase_realtime add table public.orders,public.bags,public.print_jobs;

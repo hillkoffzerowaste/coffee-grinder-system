@@ -1,0 +1,22 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { Profile } from "@/lib/types";
+
+export function Topbar({ title, profile }: { title: string; profile: Profile }) {
+  const router = useRouter();
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login");
+    router.refresh();
+  }
+  return <header className="topbar">
+    <h1>HILLKOFF · {title}</h1>
+    <div className="topbar-actions">
+      <span>{profile.display_name}</span>
+      {profile.role === "admin" && <><Link href="/packing">ห้องแพ็ค</Link><Link href="/admin">Admin Console</Link></>}
+      <button className="button secondary" onClick={logout}>ออกจากระบบ</button>
+    </div>
+  </header>;
+}
