@@ -27,7 +27,7 @@ export function ProductSearch({query,disabled=false,onSelect}:{query:string;disa
  return <section aria-label="ผลค้นหาสินค้า" className="stack" style={{maxHeight:240,overflowY:"auto",flexShrink:0}}>
   {!result&&<small role="status">กำลังค้นหาสินค้า…</small>}
   {result?.error&&<div role="alert" className="notice error">{result.error}</div>}
-  {result?.data?.products.map(product=><button type="button" className="button secondary" style={{textAlign:"left",whiteSpace:"normal"}} key={`${product.id}:${product.barcode}`} onClick={()=>{if(!disabled)onSelect(product);}}><strong>{product.name}</strong><br/>{product.sku} · {product.size_grams} g · {product.barcode}</button>)}
+  {result?.data?.products.map(product=><button type="button" className="button secondary search-result" style={{textAlign:"left",whiteSpace:"normal"}} key={`${product.id}:${product.barcode}`} onClick={()=>{if(!disabled)onSelect(product);}}><strong>{product.name}</strong><br/>{product.sku} · {product.size_grams} g · {product.barcode}</button>)}
   {result?.data&&!result.data.products.length&&<small role="status">ไม่พบสินค้า ลองชื่อหรือ SKU อื่น</small>}
  </section>;
 }
@@ -39,7 +39,7 @@ export function JobSearch({query,disabled=false,profileId,isAdmin,onSelect}:{que
  return <section aria-label="ผลค้นหางานค้าง" className="stack" style={{maxHeight:240,overflowY:"auto",flexShrink:0}}>
   {!result&&<small role="status">กำลังค้นหางานค้าง…</small>}
   {result?.error&&<div role="alert" className="notice error">{result.error}</div>}
-  {jobs.map(job=><button type="button" className="button secondary" style={{textAlign:"left",whiteSpace:"normal"}} key={`${job.order_id}:${job.product_barcode_snapshot}`} onClick={()=>{if(!disabled)onSelect(job);}}><strong>{job.product_name_snapshot}</strong><br/>{job.sku_snapshot} · {job.size_grams_snapshot} g · {job.orders?.order_no??job.order_id} · คิว #{job.queue_seq}</button>)}
+  {jobs.map(job=><button type="button" className="button secondary search-result" style={{textAlign:"left",whiteSpace:"normal"}} key={`${job.order_id}:${job.product_barcode_snapshot}`} onClick={()=>{if(!disabled)onSelect(job);}}><strong>{job.product_name_snapshot}</strong><br/>{job.sku_snapshot} · {job.size_grams_snapshot} g · {job.orders?.order_no??job.order_id} · คิว #{job.queue_seq}</button>)}
   {result?.data&&!jobs.length&&<small role="status">ไม่พบงานที่ยังรอรับสำหรับคำค้นนี้</small>}
   {result?.data?.hasMore&&<small>มีผลเพิ่มเติม กรุณาระบุชื่อหรือเลขออเดอร์ให้เจาะจงขึ้น</small>}
  </section>;

@@ -135,7 +135,10 @@ try {
           await page.getByRole('button', { name: 'งานค้าง', exact: true }).click();
         }
         await page.locator('#scan').fill('ซองแดง');
-        await page.getByRole('button', { name: new RegExp(product.sku) }).click();
+        const productResult=page.getByRole('button', { name: new RegExp(product.sku) });
+        assert.ok(await productResult.evaluate(button=>parseFloat(getComputedStyle(button).fontSize)<=15),'search-result font should stay compact');
+        await screenshot(page, `${name}-search`);
+        await productResult.click();
         await productAboveScanner(page, '#scan'); await screenshot(page, `${name}-product`);
         await scan(page, '#scan', grinds[1].barcode); await modal(page, name);
         if (station === 'packingmanual') await page.locator('#manual-grinder').selectOption(grinderId);
@@ -190,7 +193,10 @@ try {
         await page.getByRole('button', { name: 'กลับห้องแพ็ค', exact: true }).click();
         await expect(page.locator('#packing-scan')).toBeFocused();
         await page.locator('#packing-scan').fill('ซองแดง');
-        await page.getByRole('button', { name: new RegExp(product.sku) }).click();
+        const jobResult=page.getByRole('button', { name: new RegExp(product.sku) });
+        assert.ok(await jobResult.evaluate(button=>parseFloat(getComputedStyle(button).fontSize)<=15),'search-result font should stay compact');
+        await screenshot(page, `${name}-search`);
+        await jobResult.click();
         await productAboveScanner(page, '#packing-scan'); await screenshot(page, `${name}-product`);
         await scan(page, '#packing-scan', grinds[1].barcode); await modal(page, name);
         await page.locator('#grinder').selectOption(grinderId);
