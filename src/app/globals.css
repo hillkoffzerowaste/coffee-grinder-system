@@ -41,6 +41,13 @@ a { color: inherit; }
 .topbar { min-height: 58px; background: var(--header); color: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem 1rem; }
 .topbar h1 { margin: 0; font-size: 1.15rem; }
 .topbar-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.pwa-install { position: relative; display: inline-flex; align-items: center; gap: .4rem; }
+.pwa-install-message { position: absolute; z-index: 20; right: 0; top: calc(100% + .4rem); width: 260px; padding: .45rem .6rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); box-shadow: 0 4px 12px #0002; font-size: .8rem; }
+.sound-active { color: var(--success); font-weight: 700; }
+.sound-gate { position: fixed; inset: 0; z-index: 1000; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #0d2929cc; }
+.sound-gate[open] { display: grid; place-items: center; }
+.sound-gate .panel { width: min(480px, calc(100% - 2rem)); border-width: 2px; box-shadow: 0 16px 48px #0007; text-align: center; }
+.sound-gate h2, .sound-gate p { margin: 0; }
 .workspace { width: min(1500px, 100%); margin: 0 auto; padding: 1rem; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1rem; }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 1rem; }

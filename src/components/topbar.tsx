@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Profile } from "@/lib/types";
 import { apiFetch } from "@/lib/api";
+import { PwaInstallButton } from "@/components/pwa-install-button";
 
 export function Topbar({ title, profile }: { title: string; profile: Profile }) {
   const router = useRouter();
@@ -18,6 +19,7 @@ export function Topbar({ title, profile }: { title: string; profile: Profile }) 
     <div className="topbar-actions">
       <span>{profile.display_name}</span>
       {profile.role === "admin" && <><Link href="/packing">ห้องแพ็ค</Link><Link href="/admin">Admin Console</Link></>}
+      <PwaInstallButton />
       <button className="button secondary" onClick={logout}>ออกจากระบบ</button>
     </div>
   </header>;

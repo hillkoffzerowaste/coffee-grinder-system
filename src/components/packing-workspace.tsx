@@ -24,7 +24,6 @@ const orderNo=(job:BagJob)=>job.orders?.order_no??job.order?.order_no??job.order
 export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;initialManual?:boolean}){
  const [manualOpen,setManualOpen]=useState(initialManual);
  const [jobs,setJobs]=useState<BagJob[]>([]),[queuedCount,setQueuedCount]=useState(0),[hasMore,setHasMore]=useState(false);
- const [hasOverdueQueued,setHasOverdueQueued]=useState(false);
  const [context,setContext]=useState<BagJob|null>(null),[orderJobs,setOrderJobs]=useState<BagJob[]>([]),[candidates,setCandidates]=useState<BagJob[]>([]);
  const [batchId,setBatchId]=useState(""),[batchJobs,setBatchJobs]=useState<BagJob[]>([]),[revision,setRevision]=useState(0);
  const [scan,setScan]=useState(""),[grind,setGrind]=useState<GrindLookup|null>(null),[grinderId,setGrinderId]=useState("");
@@ -35,7 +34,7 @@ export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;
  const {grinds,grinders,catalogError,reloadCatalog}=useCatalog(),sound=useSounds();
  useScannerInput(scanRef,setScan,!manualOpen);
  useScannerFocus(scanRef,manualOpen||busy||!!grind||!!pending||recoveryError);
- useQueueAlarm(queuedCount,hasOverdueQueued,sound.enabled,sound.play);
+ useQueueAlarm(queuedCount>0,sound.enabled,sound.play);
  const storageKey=`coffee-packing-pending:${profile.id}`;
  const canStart=(job:BagJob)=>job.status==="QUEUED"||(job.status==="CLAIMED"&&(job.claimed_by===profile.id||profile.role==="admin"));
  const available=orderJobs.filter(job=>context&&groupKey(job)===groupKey(context)&&canStart(job)&&job.grind_id===grind?.id);
@@ -63,7 +62,7 @@ export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;
    try{
     const [queue,detail,batch]=await Promise.all([apiFetch<Queue>("/api/jobs"),context?apiFetch<Queue>(`/api/jobs?orderId=${context.order_id}`):null,batchId?apiFetch<Queue>(`/api/jobs?batch=${batchId}`):null]);
     if(!active)return;
-    setJobs(queue.jobs);setQueuedCount(queue.queuedCount??queue.jobs.filter(j=>j.status==="QUEUED").length);setHasOverdueQueued(queue.jobs.some(job=>job.status==="QUEUED"&&Date.now()-Date.parse(job.created_at)>=60000));setHasMore(!!queue.hasMore);setLastSync(new Date().toLocaleTimeString("th-TH"));
+    setJobs(queue.jobs);setQueuedCount(queue.queuedCount??queue.jobs.filter(j=>j.status==="QUEUED").length);setHasMore(!!queue.hasMore);setLastSync(new Date().toLocaleTimeString("th-TH"));
     if(detail){setOrderJobs(detail.jobs);if(context?.status==="GRINDING"&&!detail.jobs.some(j=>j.id===context.id)){setContext(null);setMessage("รายการเดิมไม่อยู่ในคิวงานล่าสุดแล้ว");}}
     if(batch){setBatchJobs(batch.jobs);if(!batch.jobs.length){setBatchId("");setMessage("ชุดงานนี้ไม่มีถุงที่กำลังทำแล้ว — ดูผลในประวัติ");}}
     setError(current=>current==="โหลดสถานะไม่สำเร็จ — กำลังลองใหม่"?"":current);
@@ -172,7 +171,7 @@ export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;
    {context?.status==="GRINDING"&&!context.grinding_batch_id&&<button className="button large" disabled={busy||!!pending} onClick={()=>void completeLegacy()}>เสร็จสิ้นรายการเดิม</button>}
    {batchId&&<button data-testid="job-action" className="button large" disabled={busy||!!pending||!canCompleteBatch} onClick={()=>void execute({path:"/api/jobs/complete",body:JSON.stringify({clientRequestId:crypto.randomUUID(),batchId}),description:`เสร็จสิ้นชุดงาน ${batchJobs.length} ถุง`})}>เสร็จสิ้น {batchJobs.length} ถุง</button>}
    {batchJobs.length>0&&!canCompleteBatch&&<small>ผู้รับงานชุดนี้ต้องเป็นผู้ยืนยันเสร็จสิ้น</small>}
-   <small>รอรับ {queuedCount} ถุง · ออเดอร์ใหม่เตือน 1 ครั้ง · งานรอเตือนทุก 15 วินาที · เกิน 1 นาทีเตือนทุก 10 วินาที · หยุดเมื่อรอรับเหลือ 0 ถุง</small>
+   <small>รอรับ {queuedCount} ถุง · เสียงเตือนระดับ 100% ดังซ้ำทุก 3 วินาทีจนงานรอรับเหลือ 0 ถุง</small>
   </div></aside>
   {grind&&context&&<QuantityDialog title="ยืนยันจำนวนเพื่อเริ่มบด" description={`${orderNo(context)} · ${context.product_name_snapshot} · ${context.size_grams_snapshot} g · เบอร์ ${grind.grind_value}`} max={pending?99:Math.min(99,available.length)} locked={!!pending} busy={busy} error={error} onConfirm={start} onCancel={()=>{if(pendingRef.current){setError("ต้องยืนยันรายการค้างก่อน");return;}setGrind(null);setError("");refocus();}}>
    <div className="field"><label htmlFor="grinder">คนบด</label><select id="grinder" className="select" required disabled={busy||!!pending} value={grinderId} onChange={e=>setGrinderId(e.target.value)}><option value="">เลือกคนบด</option>{grinders.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>

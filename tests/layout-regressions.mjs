@@ -117,6 +117,9 @@ try {
       });
       const name = `${station}-${size.width}`;
       await page.goto(`${origin}/${station === 'packingmanual' ? 'packing/new' : station}`);
+      const soundGate=page.getByRole('button',{name:'เปิดเสียงเพื่อเริ่มงาน',exact:true});
+      if(await soundGate.isVisible())await soundGate.click();
+      await expect(page.locator('.sound-gate')).toHaveCount(0);
       await page.locator('svg[data-barcode]').last().waitFor();
       const metrics = await page.evaluate(() => {
         const drawer = document.querySelector('.barcode-drawer'), table = document.querySelector('.data-table-wrap');

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { Station } from "@/lib/types";
+import { PwaInstallButton } from "@/components/pwa-install-button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function LoginPage() {
           <button className="button large secondary" type="button" disabled={busy || !username || !password} onClick={() => void login("packing")}>เข้าห้องแพ็ค</button>
         </div>
       </form>
+      <PwaInstallButton />
       <small>ใช้บัญชีที่ Admin สร้างไว้ · เบราว์เซอร์สามารถจดจำรหัสผ่านได้</small>
     </section>
   </main>;
