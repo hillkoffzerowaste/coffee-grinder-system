@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { CSSProperties } from "react";
 import type { Profile } from "@/lib/types";
 import { apiFetch } from "@/lib/api";
 import { PwaInstallButton } from "@/components/pwa-install-button";
@@ -15,7 +16,7 @@ export function Topbar({ title, profile, uiConfig=defaultUiConfig }: { title: st
     router.replace("/login");
     router.refresh();
   }
-  return <header className="topbar">
+  return <header className="topbar" style={{"--accent":uiConfig.theme.accent} as CSSProperties}>
     <h1>HILLKOFF · {title}</h1>
     <div className="topbar-actions">
       <span>{profile.display_name}</span>
