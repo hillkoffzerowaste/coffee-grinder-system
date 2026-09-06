@@ -9,6 +9,9 @@ import type { AppRole, Profile } from "./types";
 export { canUseStation } from "./permissions";
 export const sessionCookie = "coffee_session";
 export const sessionOptions = {httpOnly:true,secure:process.env.NODE_ENV === "production",sameSite:"lax" as const,path:"/",maxAge:31536000};
+export function stationLandingPath(profile: Pick<Profile,"station">): "/counter" | "/packing" {
+  return profile.station === "counter" ? "/counter" : "/packing";
+}
 export const currentProfile = cache(async (): Promise<Profile | null> => {
   if (!hasDatabaseEnv()) return null;
   const token = (await cookies()).get(sessionCookie)?.value;

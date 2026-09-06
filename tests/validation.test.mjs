@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { orderSchema, loginSchema, transitionSchema, pendingOrderSchema } from '../src/lib/validation.ts';
 import {dropdownGrinds} from '../src/lib/grind-options.ts';
 import { canUseStation } from '../src/lib/permissions.ts';
+import { stationLandingPath } from '../src/lib/auth.ts';
 import { jobStatusLabels } from '../src/lib/job-status.ts';
 
 const line = { clientLineId:'one', productId:randomUUID(), productBarcode:'001234567890123456789', grindId:randomUUID(), grindBarcode:'990006', quantity:1 };
@@ -60,4 +61,9 @@ test('station access requires compatible role, assigned station and active accou
       }
     }
   }
+});
+test('a persisted session resumes at its assigned workstation', () => {
+  assert.equal(stationLandingPath({station:'counter'}),'/counter');
+  assert.equal(stationLandingPath({station:'packing'}),'/packing');
+  assert.equal(stationLandingPath({station:'both'}),'/packing');
 });
