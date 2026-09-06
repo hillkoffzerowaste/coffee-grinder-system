@@ -13,6 +13,9 @@ export async function GET(request:Request) {
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status='COMPLETED') as completed_count,
    (select min(b.created_at) from coffee.bags b where b.order_id=o.id and b.status='QUEUED') as oldest_queued_at,
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status='QUEUED' and b.created_at < now() - interval '1 minute') as overdue_queued_count,
+   coalesce((select sum(b.size_grams_snapshot)::int from coffee.bags b where b.order_id=o.id and b.status<>'CANCELLED'),0)::int as total_grams,
+   (select min(b.started_at) from coffee.bags b where b.order_id=o.id and b.started_at is not null) as grinding_started_at,
+   (select max(b.completed_at) from coffee.bags b where b.order_id=o.id and b.completed_at is not null) as completed_at,
    coalesce((select jsonb_object_agg(s.status,s.n) from (select b.status,count(*)::int n from coffee.bags b where b.order_id=o.id group by b.status) s),'{}'::jsonb) progress
    from coffee.orders o where ($1::boolean and o.status='OPEN') or (not $1::boolean and o.status in ('COMPLETED','CANCELLED'))
    order by o.created_at desc,o.id desc limit 51 offset $2`,[view==="active",page*50]);

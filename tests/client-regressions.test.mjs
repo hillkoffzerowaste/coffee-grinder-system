@@ -250,7 +250,7 @@ test('web app manifest is configured for the desktop grinding application',async
 test('order monitor shows queued wait summary and overdue warning',async()=>{
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(url)=>{
-  if(url==='/api/orders')return json({orders:[{id:'order-1',order_no:'HK-001',total_bags:4,status:'OPEN',queued_count:2,active_count:1,completed_count:1,oldest_queued_at:new Date(Date.now()-121000).toISOString(),overdue_queued_count:1,progress:{QUEUED:2,GRINDING:1,COMPLETED:1}}]});
+  if(url==='/api/orders')return json({orders:[{id:'order-1',order_no:'HK-001',total_bags:4,total_grams:500,grinding_started_at:new Date(Date.now()-90000).toISOString(),completed_at:null,status:'OPEN',queued_count:2,active_count:1,completed_count:1,oldest_queued_at:new Date(Date.now()-121000).toISOString(),overdue_queued_count:1,progress:{QUEUED:2,GRINDING:1,COMPLETED:1}}]});
   return json({bags:[]});
  };
  const unmount=await mount(OrderMonitor);
@@ -260,6 +260,10 @@ test('order monitor shows queued wait summary and overdue warning',async()=>{
   assert.ok(document.body.textContent.includes('ค้างนานสุด 2 นาที'));
   assert.ok(document.body.textContent.includes('มี 1 ถุงรอรับเกิน 1 นาที'));
   assert.equal(document.querySelector('[role="alert"]')?.textContent.includes('เกิน 1 นาที'),true);
+  assert.ok(document.body.textContent.includes('SLA 1:30 / 2:00'));
+  assert.equal(document.querySelector('[role="alertdialog"]')?.textContent.includes('HK-001'),true);
+  await clickText('รับทราบ');
+  assert.equal(document.querySelector('[role="alertdialog"]'),null);
  } finally {await unmount();globalThis.fetch=originalFetch;}
 });
 

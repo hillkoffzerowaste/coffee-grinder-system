@@ -9,9 +9,9 @@ test('order list SQL separates active/history before pagination and reports queu
  try{
   await db.exec(`create schema coffee;
    create table coffee.orders(id int primary key,order_no text,source text,status text,total_bags int,created_at timestamptz);
-   create table coffee.bags(order_id int,status text,created_at timestamptz);
+   create table coffee.bags(order_id int,status text,created_at timestamptz,size_grams_snapshot int,started_at timestamptz,completed_at timestamptz);
    insert into coffee.orders select n,'HK-'||n,'COUNTER',case when n<=55 then 'OPEN' else 'COMPLETED' end,1,now() from generate_series(1,110) n;
-   insert into coffee.bags values(55,'QUEUED',now()-interval '2 minutes');`);
+   insert into coffee.bags values(55,'QUEUED',now()-interval '2 minutes',250,null,null),(55,'GRINDING',now(),250,now()-interval '90 seconds',null);`);
   const source=await readFile('src/app/api/orders/route.ts','utf8');
   const sql=/readRows\(auth.profile.id,`([\s\S]*?)`/.exec(source)?.[1];
   assert.ok(sql,'test executes the actual route query');
@@ -20,6 +20,8 @@ test('order list SQL separates active/history before pagination and reports queu
   assert.equal(active.length,51);assert.ok(active.every(o=>o.status==='OPEN'));
   assert.equal(history.length,51);assert.ok(history.every(o=>o.status==='COMPLETED'));
   assert.equal(active[0].overdue_queued_count,1);
+  assert.equal(active[0].total_grams,500);
+  assert.ok(active[0].grinding_started_at);
   const second=(await db.query(sql,[false,50])).rows;
   assert.equal(second.length,5);
   assert.equal(new Set([...history.slice(0,50),...second].map(o=>o.id)).size,55);
