@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;

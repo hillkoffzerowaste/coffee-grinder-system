@@ -38,7 +38,7 @@ a { color: inherit; }
 .skip-link:focus { top: .5rem; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .app-shell { min-height: 100vh; }
-.topbar { min-height: 58px; background: var(--header); color: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem 1rem; }
+.topbar { min-height: 58px; background: var(--accent, var(--header)); color: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem 1rem; }
 .topbar h1 { margin: 0; font-size: 1.15rem; }
 .topbar-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .pwa-install { position: relative; display: inline-flex; align-items: center; gap: .4rem; }
@@ -63,6 +63,11 @@ a { color: inherit; }
 .button.search-result { font-size: .9rem; line-height: 1.35; font-weight: 600; }
 .button.danger { background: var(--danger); border-color: var(--danger); }
 .button.large { min-height: 54px; font-size: 1.05rem; }
+.fieldset { border: 1px solid var(--border); border-radius: 5px; padding: .75rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+.check-row { display: inline-flex; align-items: center; gap: .45rem; }
+.app-shell[data-density="compact"] .panel { padding: .7rem; }
+.app-shell[data-density="compact"] .workspace { padding: .7rem; }
+.app-shell[data-button-size="large"] .button { min-height: 50px; font-size: 1rem; }
 .status { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--border); border-radius: 999px; padding: .18rem .55rem; font-size: .85rem; }
 .status.ok { color: var(--success); background: var(--success-bg); }
 .status.warn { color: var(--warning); background: var(--warning-bg); }

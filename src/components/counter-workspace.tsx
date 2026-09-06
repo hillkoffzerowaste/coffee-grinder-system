@@ -15,9 +15,10 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useScannerFocus, useScannerInput } from "@/lib/scanner";
 import { batchCompleteSchema, orderSchema, pendingOrderSchema } from "@/lib/validation";
 import type { DraftLine, GrindLookup, ProductLookup, Profile } from "@/lib/types";
+import type { UiConfig } from "@/lib/ui-config";
 
 
-export function CounterWorkspace({ profile, source = "COUNTER", embedded, onCompleted, onCancel }: { profile: Profile; source?: "COUNTER" | "PACKING_MANUAL"; embedded?: boolean; onCompleted?: (batchId: string) => void; onCancel?: () => void }) {
+export function CounterWorkspace({ profile, source = "COUNTER", embedded, onCompleted, onCancel, uiConfig }: { profile: Profile; source?: "COUNTER" | "PACKING_MANUAL"; embedded?: boolean; onCompleted?: (batchId: string) => void; onCancel?: () => void; uiConfig?: UiConfig }) {
   const router = useRouter();
   const scanRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -232,5 +233,5 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
       {source === "PACKING_MANUAL" && <div className="field"><label htmlFor="manual-grinder">ผู้รับผิดชอบงาน (ผู้แพ็ค/ผู้บด)</label><select id="manual-grinder" className="select" required value={grinderUserId} disabled={busy || awaitingRetry} onChange={event => setGrinderUserId(event.target.value)}><option value="">เลือกผู้รับผิดชอบ</option>{grinders.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><small>ยืนยันออเดอร์ทั้งหมดจะรวมรายการนี้กับรายการก่อนหน้า {total} ถุง</small></div>}
     </QuantityDialog>}
   </>;
-  return (embedded ?? !!onCompleted) ? content : <div className="app-shell operational-shell"><Topbar title={source === "COUNTER" ? "หน้าร้าน" : "เปิดออเดอร์ห้องแพ็ค"} profile={profile} />{content}</div>;
+  return (embedded ?? !!onCompleted) ? content : <div className="app-shell operational-shell" data-density={uiConfig?.theme.density} data-button-size={uiConfig?.theme.buttonSize}><Topbar title={source === "COUNTER" ? "หน้าร้าน" : "เปิดออเดอร์ห้องแพ็ค"} profile={profile} uiConfig={uiConfig} />{content}</div>;
 }

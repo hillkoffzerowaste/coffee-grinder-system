@@ -14,6 +14,7 @@ import {useScannerFocus,useScannerInput} from "@/lib/scanner";
 import {batchStartSchema,batchCompleteSchema} from "@/lib/validation";
 import {jobStatusLabels} from "@/lib/job-status";
 import type {BagJob,GrindLookup,Profile} from "@/lib/types";
+import type {UiConfig} from "@/lib/ui-config";
 
 type Queue={jobs:BagJob[];queuedCount:number;hasMore?:boolean};
 type Pending={path:"/api/jobs/start"|"/api/jobs/complete";body:string;description:string};
@@ -21,7 +22,7 @@ type BatchResult={batch:{batch_id:string;bag_ids:string[]}};
 const groupKey=(job:BagJob)=>`${job.order_id}:${job.product_barcode_snapshot}`;
 const orderNo=(job:BagJob)=>job.orders?.order_no??job.order?.order_no??job.order_id;
 
-export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;initialManual?:boolean}){
+export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile:Profile;initialManual?:boolean;uiConfig?:UiConfig}){
  const [manualOpen,setManualOpen]=useState(initialManual);
  const [jobs,setJobs]=useState<BagJob[]>([]),[queuedCount,setQueuedCount]=useState(0),[hasMore,setHasMore]=useState(false);
  const [context,setContext]=useState<BagJob|null>(null),[orderJobs,setOrderJobs]=useState<BagJob[]>([]),[candidates,setCandidates]=useState<BagJob[]>([]);
@@ -149,8 +150,8 @@ export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;
  }
  const visibleRows=[...new Map(jobs.map(j=>[j.grinding_batch_id??j.id,j])).values()];
  const canCompleteBatch=batchJobs.length>0&&batchJobs.every(j=>j.status==="GRINDING"&&j.claimed_by===profile.id);
- if(manualOpen)return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค · เปิดออเดอร์ด่วน" profile={profile}/><CounterWorkspace embedded profile={profile} source="PACKING_MANUAL" onCancel={()=>{setManualOpen(false);setScan("");refocus();}} onCompleted={id=>{setContext(null);setCandidates([]);setOrderJobs([]);setBatchJobs([]);setBatchId(id);setScan("");setMessage("เปิดออเดอร์แล้ว — กำลังบด");setRevision(n=>n+1);setManualOpen(false);refocus();}}/></div>;
- return <div className="app-shell operational-shell"><Topbar title="ห้องแพ็ค" profile={profile}/><main id="main" tabIndex={-1} className="workspace grid packing-layout">
+ if(manualOpen)return <div className="app-shell operational-shell" data-density={uiConfig?.theme.density} data-button-size={uiConfig?.theme.buttonSize}><Topbar title="ห้องแพ็ค · เปิดออเดอร์ด่วน" profile={profile} uiConfig={uiConfig}/><CounterWorkspace embedded profile={profile} source="PACKING_MANUAL" onCancel={()=>{setManualOpen(false);setScan("");refocus();}} onCompleted={id=>{setContext(null);setCandidates([]);setOrderJobs([]);setBatchJobs([]);setBatchId(id);setScan("");setMessage("เปิดออเดอร์แล้ว — กำลังบด");setRevision(n=>n+1);setManualOpen(false);refocus();}}/></div>;
+ return <div className="app-shell operational-shell" data-density={uiConfig?.theme.density} data-button-size={uiConfig?.theme.buttonSize}><Topbar title="ห้องแพ็ค" profile={profile} uiConfig={uiConfig}/><main id="main" tabIndex={-1} className="workspace grid packing-layout">
   <section ref={queueRef} className="panel packing-queue"><SoundControls sound={sound} onReady={refocus}/>
    <div className="row"><h2>คิวงานบด</h2><button type="button" className="button secondary" disabled={busy||!!pending||!!grind||recoveryError} onClick={()=>setManualOpen(true)}>เปิดออเดอร์เอง</button><button className="button secondary" disabled={busy||!!pending} onClick={clearSelection}>สแกนสินค้าใหม่</button></div>
    {context&&<div className="product-result"><div><strong className="product-name">{context.product_name_snapshot}</strong><div>{context.sku_snapshot} · {orderNo(context)}</div></div><strong>{context.size_grams_snapshot} g</strong></div>}
