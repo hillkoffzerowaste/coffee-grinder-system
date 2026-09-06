@@ -250,7 +250,7 @@ test('web app manifest is configured for the desktop grinding application',async
 test('order monitor shows queued wait summary and overdue warning',async()=>{
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(url)=>{
-  if(url==='/api/orders')return json({orders:[{id:'order-1',order_no:'HK-001',total_bags:4,total_grams:500,grinding_started_at:new Date(Date.now()-90000).toISOString(),completed_at:null,status:'OPEN',queued_count:2,active_count:1,completed_count:1,oldest_queued_at:new Date(Date.now()-121000).toISOString(),overdue_queued_count:1,progress:{QUEUED:2,GRINDING:1,COMPLETED:1}}]});
+  if(url==='/api/orders')return json({orders:[{id:'order-1',order_no:'HK-001',created_at:new Date(Date.now()-90000).toISOString(),total_bags:4,total_grams:500,grinding_started_at:new Date(Date.now()-90000).toISOString(),completed_at:null,status:'OPEN',queued_count:2,active_count:1,completed_count:1,oldest_queued_at:new Date(Date.now()-121000).toISOString(),overdue_queued_count:1,progress:{QUEUED:2,GRINDING:1,COMPLETED:1}}]});
   return json({bags:[]});
  };
  const unmount=await mount(OrderMonitor);
@@ -271,7 +271,7 @@ test('monitor moves completed work out of active view, colors history and clears
  t.mock.timers.enable({apis:['setInterval']});
  const originalFetch=globalThis.fetch;
  let completed=false;
- const item={id:'order-moving',order_no:'HK-MOVING',total_bags:1,status:'OPEN',queued_count:1,active_count:0,completed_count:0,oldest_queued_at:null,overdue_queued_count:0,progress:{QUEUED:1}};
+ const item={id:'order-moving',order_no:'HK-MOVING',created_at:new Date().toISOString(),total_bags:1,total_grams:250,grinding_started_at:null,completed_at:null,status:'OPEN',queued_count:1,active_count:0,completed_count:0,oldest_queued_at:null,overdue_queued_count:0,progress:{QUEUED:1}};
  globalThis.fetch=async(url)=>{
   if(url.startsWith('/api/orders?view=history'))return json({orders:[{...item,status:'COMPLETED',queued_count:0,completed_count:1,progress:{COMPLETED:1}}]});
   if(url==='/api/orders')return json({orders:completed?[]:[item]});
@@ -400,6 +400,21 @@ test('packing scans product, grind and quantity to start a batch and completes w
   assert.match(completion.clientRequestId,uuid);assert.deepEqual(completion,{clientRequestId:completion.clientRequestId,batchId});
   assert.ok(api.jobs.every(j=>j.status==='COMPLETED'));
   assert.ok(document.body.textContent.includes('เสร็จสิ้น — จัดเก็บในประวัติแล้ว'));
+ }finally{await unmount();}
+});
+
+test('packing scanner prioritizes queued work over a grinding batch with the same product barcode',async(t)=>{
+ const running=bag({status:'GRINDING',grinding_batch_id:batchId,claimed_by:profile.id});
+ const sameProductQueued=bag({queue_seq:2,bag_no:2,grind_id:wrongGrind.id,grind_value_snapshot:'8'});
+ const otherProductQueued=bag({queue_seq:3,bag_no:3,product_barcode_snapshot:'001234567891',product_name_snapshot:'Other coffee'});
+ const api=packingApi(t,[running,sameProductQueued,otherProductQueued]);const unmount=await mount(PackingWorkspace);
+ try{
+  await scan('packing-scan',product.barcode);
+  assert.equal(document.querySelector('.product-result .product-name')?.textContent,product.name,'the queued item opens directly instead of the running batch masking it');
+  assert.equal(document.querySelectorAll('.detail-content button').length,0,'one queued order needs no manual choice');
+  await clickText('สแกนสินค้าใหม่');await scan('packing-scan','001234567891');
+  assert.equal(document.querySelector('.product-result .product-name')?.textContent,'Other coffee','a different product remains scannable while another batch is grinding');
+  assert.equal(api.posts().length,0);
  }finally{await unmount();}
 });
 

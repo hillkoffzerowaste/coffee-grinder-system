@@ -4,7 +4,7 @@ import {apiFetch} from "@/lib/api";
 import {jobStatusLabels} from "@/lib/job-status";
 import {orderSla} from "@/lib/order-sla";
 import type {JobStatus} from "@/lib/types";
-type Summary={id:string;order_no:string;total_bags:number;total_grams:number;grinding_started_at:string|null;completed_at:string|null;status:string;queued_count:number;active_count:number;completed_count:number;oldest_queued_at:string|null;overdue_queued_count:number;progress?:Partial<Record<JobStatus,number>>};
+type Summary={id:string;order_no:string;created_at:string;total_bags:number;total_grams:number;grinding_started_at:string|null;completed_at:string|null;status:string;queued_count:number;active_count:number;completed_count:number;oldest_queued_at:string|null;overdue_queued_count:number;progress?:Partial<Record<JobStatus,number>>};
 type Bag={id:string;bag_no:number;status:JobStatus;product_name_snapshot:string;size_grams_snapshot:number;grind_value_snapshot:string;grinder_name_snapshot:string|null;events:{status:JobStatus;at:string}[]};
 function waitMinutes(oldestQueuedAt:string|null){const time=Date.parse(oldestQueuedAt??"");return Number.isFinite(time)?Math.max(0,Math.floor((Date.now()-time)/60000)):0;}
 function statusClass(status:string){return status==="COMPLETED"?"ok":status==="QUEUED"?"warn":["CLAIMED","GRINDING"].includes(status)?"info":"";}
@@ -45,7 +45,7 @@ export function OrderMonitor({revision}:{revision:number}){
   <div className="monitor-tabs" aria-label="มุมมองออเดอร์"><button type="button" className="button secondary" aria-pressed={view==="active"} onClick={()=>changeView("active")}>งานค้าง</button><button type="button" className="button secondary" aria-pressed={view==="history"} onClick={()=>changeView("history")}>ประวัติ</button></div>
   <small>อัปเดตอัตโนมัติทุก 2 วินาที · ล่าสุด {updated||"กำลังโหลด"}</small>
   {error&&<div className="notice error" role="alert">{error}</div>}
-  <div className="monitor-list">{orders.map(order=>{const sla=orderSla({totalGrams:order.total_grams,startedAt:order.grinding_started_at,finishedAt:order.status==="COMPLETED"?order.completed_at:null});return <section className={`notice ${order.status==="COMPLETED"?"order-done":order.overdue_queued_count>0?"order-overdue":sla?.tone==="danger"?"order-sla-overdue":order.queued_count>0?"order-waiting":order.status==="OPEN"?"order-active":""}`} key={order.id}>
+  <div className="monitor-list">{orders.map(order=>{const sla=orderSla({totalGrams:order.total_grams,queuedAt:order.created_at,finishedAt:order.status==="COMPLETED"?order.completed_at:null});return <section className={`notice ${order.status==="COMPLETED"?"order-done":order.overdue_queued_count>0?"order-overdue":sla?.tone==="danger"?"order-sla-overdue":order.queued_count>0?"order-waiting":order.status==="OPEN"?"order-active":""}`} key={order.id}>
    <button className="button secondary" type="button" aria-expanded={selected===order.id} onClick={()=>{setBags([]);setDetailLoaded(false);setSelected(selected===order.id?"":order.id);}}>{order.order_no} · {order.total_bags} ถุง</button>
    {order.status!=="OPEN"&&<div><span className={`status ${statusClass(order.status)}`}>{order.status==="COMPLETED"?"เสร็จสิ้น":"ยกเลิก"}</span></div>}
    <div className="queue-summary" aria-label={`สรุปคิว ${order.order_no}`}><strong>รอรับ {order.queued_count} ถุง</strong><span>กำลังทำ {order.active_count} ถุง</span><span>เสร็จ {order.completed_count} ถุง</span><span>ค้างนานสุด {waitMinutes(order.oldest_queued_at)} นาที</span></div>

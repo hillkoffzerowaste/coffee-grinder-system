@@ -1,9 +1,9 @@
-type SlaInput = { totalGrams: number; startedAt: string | null; finishedAt?: string | null; now?: string | Date };
+type SlaInput = { totalGrams: number; queuedAt?: string | null; startedAt?: string | null; finishedAt?: string | null; now?: string | Date };
 export type SlaTone = "ok" | "warn" | "danger";
 export type OrderSla = { elapsedSeconds: number; targetSeconds: number; tone: SlaTone };
 
-export function orderSla({ totalGrams, startedAt, finishedAt, now = new Date() }: SlaInput): OrderSla | null {
-  const started = Date.parse(startedAt ?? "");
+export function orderSla({ totalGrams, queuedAt, startedAt, finishedAt, now = new Date() }: SlaInput): OrderSla | null {
+  const started = Date.parse(queuedAt ?? startedAt ?? "");
   if (!Number.isFinite(started) || !Number.isFinite(totalGrams) || totalGrams <= 0) return null;
   const ended = finishedAt ? Date.parse(finishedAt) : new Date(now).getTime();
   if (!Number.isFinite(ended)) return null;

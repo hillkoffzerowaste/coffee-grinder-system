@@ -12,3 +12,7 @@ test('SLA starts only after packing begins grinding and allows 500 grams per two
 test('SLA uses the finishing time after an order is completed', () => {
   assert.deepEqual(orderSla({totalGrams:250,startedAt:'2026-09-06T03:00:00.000Z',finishedAt:'2026-09-06T03:01:05.000Z',now:'2026-09-06T03:10:00.000Z'}),{elapsedSeconds:65,targetSeconds:60,tone:'danger'});
 });
+
+test('SLA includes the wait in the grinding queue before packing starts', () => {
+  assert.deepEqual(orderSla({totalGrams:500,queuedAt:'2026-09-06T03:00:00.000Z',now:'2026-09-06T03:01:30.000Z'}),{elapsedSeconds:90,targetSeconds:120,tone:'warn'});
+});

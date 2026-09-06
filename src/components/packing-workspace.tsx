@@ -95,8 +95,10 @@ export function PackingWorkspace({profile,initialManual=false}:{profile:Profile;
     const result=await apiFetch<Queue>(`/api/jobs?scan=${encodeURIComponent(value)}`);
     if(result.hasMore)throw new Error("พบงานจำนวนมาก กรุณาสแกนเลขคิวเพื่อระบุงานให้ชัดเจน");
     const matching=result.jobs.filter(j=>canStart(j)||j.status==="GRINDING");
-    if(!matching.length)throw new Error("ไม่พบงานที่รับได้สำหรับบาร์โค้ดนี้");
-    const groups=[...new Map(matching.map(j=>[j.grinding_batch_id??(j.status==="GRINDING"?j.id:groupKey(j)),j])).values()];
+    const queued=matching.filter(canStart);
+    const selectable=queued.length?queued:matching.filter(j=>j.status==="GRINDING");
+    if(!selectable.length)throw new Error("ไม่พบงานที่รับได้สำหรับบาร์โค้ดนี้");
+    const groups=[...new Map(selectable.map(j=>[j.grinding_batch_id??(j.status==="GRINDING"?j.id:groupKey(j)),j])).values()];
     setContext(null);setBatchId("");setBatchJobs([]);setCandidates(groups);if(groups.length===1)single=groups[0];
    }
    setScan("");sound.play("success");
