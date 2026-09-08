@@ -6,6 +6,7 @@ import {Topbar} from "@/components/topbar";
 import {GrindBarcodes} from "@/components/grind-barcodes";
 import {QuantityDialog} from "@/components/quantity-dialog";
 import {SizeTag} from "@/components/size-tag";
+import {DailyHistory} from "@/components/daily-history";
 import {BlendBadge} from "@/components/blend-badge";
 import {SoundControls} from "@/components/sound-controls";
 import {useSounds} from "@/lib/use-sounds";
@@ -168,6 +169,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    {hasMore&&<div className="notice">แสดง 1,000 ถุงแรก — สแกนบาร์โค้ดหรือเลขคิวเพื่อค้นหางานที่เหลือ</div>}
    <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>ชุด / สินค้า / ออเดอร์</th><th>ขนาด</th><th>วิธีเตรียม</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{visibleRows.map(j=>{const members=membersOf(j),mixed=new Set(members.map(m=>m.size_grams_snapshot)).size>1;return <tr key={j.grinding_batch_id??`${j.order_id}:${j.blend_group_no??j.id}`} className={members.length>1&&j.process_mode!=="WHOLE_BEAN"?"is-blend-row":undefined}><td>#{j.queue_seq}</td><td><span className="band-parts">ชุดที่ {j.blend_group_no??"-"}<BlendBadge skuCount={members.length} mode={j.process_mode} /></span>{members.map(m=><div key={m.sku_snapshot} className="band-parts">{m.product_name_snapshot} <small>· {m.sku_snapshot}</small>{mixed&&<SizeTag grams={m.size_grams_snapshot} mode={m.process_mode} />}</div>)}<small>{orderNo(j)}</small></td><td>{mixed?<span className="muted">คละขนาด</span>:<SizeTag grams={j.size_grams_snapshot} mode={j.process_mode} />}</td><td>{j.process_mode==="WHOLE_BEAN"?"เมล็ด":`บดเบอร์ ${j.grind_value_snapshot}`}</td><td><span className={`status ${j.status==="QUEUED"?"warn":"info"}`}>{jobStatusLabels[j.status]}</span>{j.grinding_batch_id&&<small> · ชุดงาน</small>}</td><td>{members.map(m=><button key={m.sku_snapshot} className="button secondary" disabled={busy||!!pending||recoveryError} onClick={()=>void choose(m)}>เปิดงาน{members.length>1?` · ${m.sku_snapshot}`:""}</button>)}</td></tr>;})}</tbody></table>{!jobs.length&&<div className="empty">ไม่มีงานในคิวนี้</div>}</div>
    <small>อัปเดตล่าสุด {lastSync||"กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
+   <DailyHistory/>
   </section>
   <aside className="panel packing-detail"><h2>{batchId?"กำลังบด":"งานที่เลือก"}</h2><div className="detail-content">
    {candidates.length>1&&<><div className="notice">พบหลายชุดงาน กรุณาเลือกออเดอร์ก่อนสแกนเบอร์บด และเลือกชุดให้ถูกต้อง</div>{candidates.map(j=><button key={j.grinding_batch_id??(j.status==="GRINDING"?j.id:groupKey(j))} className="button secondary" disabled={busy||!!pending} onClick={()=>void choose(j)}>{orderNo(j)} · ชุดที่ {j.blend_group_no??"-"} · คิว #{j.queue_seq} · {j.product_name_snapshot} · {jobStatusLabels[j.status]}</button>)}</>}

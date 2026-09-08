@@ -88,6 +88,9 @@ try {
         let data;
         if (request.method() === 'POST') posts.push({ path, body: JSON.parse(request.postData()) });
         if (path === '/api/catalog/options') data = { grinds, grinders: [{ id: grinderId, name: 'ผู้ทดสอบ' }] };
+        else if (path === '/api/jobs/daily') data = { daily: { day_start:new Date().toISOString(), bags:5, grams:1500, orders:2,
+          by_grinder:[{name:'กิต',bags:3},{name:'หล้า',bags:2}],
+          orders_list:[{order_no:'HK-D1',bags:3,finished_at:new Date().toISOString()},{order_no:'HK-D2',bags:2,finished_at:new Date().toISOString()}] } };
         else if (path === '/api/catalog/search') data = { products: [product] };
         else if (path === `/api/catalog/product/${product.barcode}`) data = { product };
         else if (path === `/api/catalog/product/${product2.barcode}`) data = { product: product2 };
@@ -238,6 +241,17 @@ try {
         // ขนาดต้องโผล่ที่เดียว: คละขนาดอยู่คอลัมน์ขนาด ส่วนขนาดรายตัวอยู่ติด SKU
         await expect(page.locator('.data-table tbody tr td').nth(2)).toHaveText('คละขนาด');
         await expect(page.locator('.data-table tbody tr td').nth(1).locator('.status.flag-250')).toHaveCount(1);
+        // ประวัติวันนี้โหลดตอนกางเท่านั้น ไม่ยิง API ทิ้งไว้ระหว่างสแกน
+        const history = page.locator('.daily-history');
+        assert.ok(!queries.some(q => q.includes('daily')), 'daily history must not load before it is opened');
+        await history.locator('summary').click();
+        await expect(history).toContainText('เสร็จวันนี้ 5 ถุง');
+        await expect(history).toContainText('1.5 กก.');
+        await expect(history).toContainText('กิต 3 ถุง');
+        await expect(history.locator('.data-table tbody tr')).toHaveCount(2);
+        await screenshot(page, `${name}-daily`);
+        await history.locator('summary').click();
+        await expect(history.locator('.data-table')).toBeHidden();
         await page.locator('#packing-scan').fill('ซองแดง');
         const jobResult=page.locator('.search-result', { hasText: product.sku });
         assert.ok(await jobResult.evaluate(button=>parseFloat(getComputedStyle(button).fontSize)<=15),'search-result font should stay compact');

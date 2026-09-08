@@ -172,6 +172,10 @@ a { color: inherit; }
 .data-table tr.group-band.is-blend > td { background: var(--flag-blend-bg); border-left-color: var(--flag-blend); }
 .band-parts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .muted { font-weight: 400; color: var(--muted); }
+.daily-history { border: 1px solid var(--border); border-radius: 5px; padding: .5rem .7rem; background: var(--surface); }
+.daily-history > summary { cursor: pointer; font-weight: 700; }
+.daily-history > .stack { margin-top: .6rem; }
+.daily-history .data-table { min-width: 0; }
 .order-monitor .notice.order-waiting { border-left: 5px solid #b85d00; background: #fff3e5; }
 .order-monitor .notice.order-active { border-left: 5px solid #2365a5; }
 .order-monitor .notice.order-done { border-left: 5px solid var(--success); background: var(--success-bg); }
