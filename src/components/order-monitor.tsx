@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from "react";
 import {apiFetch} from "@/lib/api";
 import {jobStatusLabels} from "@/lib/job-status";
 import {orderSla} from "@/lib/order-sla";
+import {SizeTag} from "@/components/size-tag";
 import type {JobStatus} from "@/lib/types";
 type Summary={id:string;order_no:string;created_at:string;total_bags:number;total_grams:number;grinding_started_at:string|null;completed_at:string|null;status:string;queued_count:number;active_count:number;completed_count:number;oldest_queued_at:string|null;overdue_queued_count:number;progress?:Partial<Record<JobStatus,number>>};
 type Bag={id:string;bag_no:number;status:JobStatus;product_name_snapshot:string;sku_snapshot:string;size_grams_snapshot:number;grind_value_snapshot:string|null;process_mode:"GROUND"|"WHOLE_BEAN";blend_group_no:number;grinder_name_snapshot:string|null;events:{status:JobStatus;at:string}[]};
@@ -54,7 +55,7 @@ export function OrderMonitor({revision}:{revision:number}){
    <div className="row" aria-label={`สถานะ ${order.order_no}`}>{Object.entries(order.progress??{}).map(([status,count])=><span className={`status ${statusClass(status)}`} key={status}>{jobStatusLabels[status as JobStatus]||status} {count}</span>)}</div>
    {selected===order.id&&<div className="stack">{!bags.length&&<small>{detailLoaded?"ไม่มีรายละเอียดถุง":"กำลังโหลดรายละเอียด..."}</small>}{bags.map(bag=><div className="notice" key={bag.id}>
     <strong className={`status ${statusClass(bag.status)}`}>ถุง {bag.bag_no} · {jobStatusLabels[bag.status]}</strong>
-    <div>ชุดที่ {bag.blend_group_no} · {bag.product_name_snapshot} · {bag.sku_snapshot}</div><div>{bag.size_grams_snapshot} g · {bag.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์ ${bag.grind_value_snapshot}`} · คนบด {bag.grinder_name_snapshot||"ยังไม่เริ่ม"}</div>
+    <div>ชุดที่ {bag.blend_group_no} · {bag.product_name_snapshot} · {bag.sku_snapshot}</div><div><SizeTag grams={bag.size_grams_snapshot} mode={bag.process_mode} /> · {bag.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์ ${bag.grind_value_snapshot}`} · คนบด {bag.grinder_name_snapshot||"ยังไม่เริ่ม"}</div>
     <details><summary>ประวัติสถานะ</summary>{bag.events.map((event,index)=><div key={index}>{jobStatusLabels[event.status]} · {new Date(event.at).toLocaleTimeString("th-TH")}</div>)}</details>
    </div>)}</div>}
   </section>})}</div>{!orders.length&&<p>{!loaded?"กำลังโหลดออเดอร์...":view==="active"?"ไม่มีงานค้างในหน้านี้":"ไม่มีประวัติในหน้านี้"}</p>}
