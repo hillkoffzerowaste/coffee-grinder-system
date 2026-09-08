@@ -26,34 +26,55 @@ async function loadRoute(path, state, db) {
 
 test('catalog and jobs search routes',async t=>{
   const db=new PGlite(); t.after(()=>db.close());
-  await db.exec(`create schema coffee;
-    create table coffee.products(id uuid primary key,sku text,name text,size_grams int,unit text,active boolean);
-    create table coffee.product_barcodes(product_id uuid,barcode text,active boolean);
-    create table coffee.orders(id uuid primary key,order_no text,note text);
-    create table coffee.bags(id uuid primary key,order_id uuid,grind_id uuid,claimed_by uuid,grinding_batch_id uuid,blend_group_id text,blend_group_no int,process_mode text,
-      bag_no int,queue_seq bigint,status text,product_name_snapshot text,sku_snapshot text,size_grams_snapshot int,
-      grind_value_snapshot text,product_barcode_snapshot text,grinder_name_snapshot text,created_at timestamptz);`);
+  // ยึดสคีมาจริงจาก migration ไม่ประกาศตารางเอง ไม่งั้น fixture จะ drift จาก production เงียบ ๆ
+  for(const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes']){
+    await db.exec((await readFile(new URL(`../database/migrations/${file}.sql`,import.meta.url),'utf8')).replace(/\r\n/g,'\n'));
+  }
+  await db.exec('set search_path=coffee,pg_catalog');
+  // แคตตาล็อกที่ seed มาจะไปปนผลค้นหา จึงเคลียร์ให้เหลือเฉพาะของกรณีทดสอบ
+  await db.exec('delete from coffee.product_barcodes; delete from coffee.products;');
+
   const actor=randomUUID(),state={auth:{profile:{id:actor}},calls:[]};
   const catalog=await loadRoute('../src/app/api/catalog/search/route.ts',state,db);
   const jobs=await loadRoute('../src/app/api/jobs/route.ts',state,db);
   const request=params=>new Request(`http://localhost/api/test?${new URLSearchParams(params)}`);
-  async function product(name,sku,active=true,barcodes=[['001234',true]]){
+  let barcodeSeq=100000;
+  async function product(name,sku,active=true,barcodes=null){
     const id=randomUUID();
-    await db.query('insert into coffee.products values($1,$2,$3,250,\'bag\',$4)',[id,sku,name,active]);
-    for(const [barcode,enabled] of barcodes)await db.query('insert into coffee.product_barcodes values($1,$2,$3)',[id,barcode,enabled]);
+    barcodes??=[[String(++barcodeSeq),true]]; // สคีมาจริงบังคับบาร์โค้ดไม่ซ้ำ
+    await db.query('insert into coffee.products(id,sku,name,size_grams,active) values($1,$2,$3,250,$4)',[id,sku,name,active]);
+    for(const [barcode,enabled] of barcodes)await db.query('insert into coffee.product_barcodes(product_id,barcode,active) values($1,$2,$3)',[id,barcode,enabled]);
     return id;
   }
   const thai=await product('กาแฟ French Roast','RB-HK-THAI',true,[['009999',true],['001234',true],['000001',false]]);
-  await product('Hidden French','INACTIVE',false);
+  await product('Hidden French','INACTIVE',false,[['001240',true]]);
   await product('Hidden French','NO-BARCODE',true,[]);
   await product('Hidden French','DISABLED-BARCODE',true,[['001235',false]]);
-  const literal=await product('100%_Coffee','LITERAL');
-  const order=randomUUID(),batch=randomUUID(),first=randomUUID();
-  await db.query('insert into coffee.orders values($1,\'HK-SEARCH-0001\',\'ลูกค้าขอบดหยาบ\')',[order]);
-  for(const [id,seq,status] of [[first,1,'QUEUED'],[randomUUID(),2,'GRINDING'],[randomUUID(),3,'COMPLETED']]){
-    await db.query(`insert into coffee.bags(id,order_id,grinding_batch_id,queue_seq,status,product_name_snapshot,sku_snapshot,product_barcode_snapshot)
-      values($1,$2,$3,$4,$5,'กาแฟ French Roast','RB-HK-THAI','001234')`,[id,order,batch,seq,status]);
-  }
+  const literal=await product('100%_Coffee','LITERAL',true,[['001241',true]]);
+
+  // ออเดอร์และถุงสร้างผ่านฟังก์ชันจริง ทุก NOT NULL และ FK จึงถูกบังคับเหมือน production
+  const counter=randomUUID();
+  await db.query("insert into coffee.accounts(id,password_hash) values ($1,'fixture-only')",[counter]);
+  await db.query("insert into coffee.profiles(id,username,display_name,role,station) values ($1,'counter','counter','counter','counter')",[counter]);
+  await db.query("select set_config('coffee.actor_id',$1,false)",[counter]);
+  const grind=(await db.query("select id,barcode from coffee.grind_size_codes where grind_value='6'")).rows[0];
+  const created=(await db.query('select coffee.create_order($1,$2,$3::jsonb,$4) result',[randomUUID(),'COUNTER',
+    JSON.stringify([{clientLineId:'l1',productId:thai,productBarcode:'001234',grindId:grind.id,grindBarcode:grind.barcode,quantity:3}]),
+    'ลูกค้าขอบดหยาบ'])).rows[0].result;
+  const order=created.id,orderNo=created.order_no;
+  const bagIds=(await db.query('select id from coffee.bags where order_id=$1 order by queue_seq',[order])).rows.map(r=>r.id);
+  const first=bagIds[0];
+  // ชุดงานต้องมาจาก start_scan_batch จริง เพราะ grinding_batch_id มี FK ผูกกับออเดอร์
+  const packer=randomUUID();
+  await db.query("insert into coffee.accounts(id,password_hash) values ($1,'fixture-only')",[packer]);
+  await db.query("insert into coffee.profiles(id,username,display_name,role,station) values ($1,'packer','packer','packer','packing')",[packer]);
+  const grinderId=(await db.query("insert into coffee.grinder_users(name) values ('ผู้ทดสอบ') returning id")).rows[0].id;
+  await db.query("select set_config('coffee.actor_id',$1,false)",[packer]);
+  const batch=(await db.query('select coffee.start_scan_batch($1,$2,$3,$4,$5,$6,$7) result',
+    [randomUUID(),order,'001234',grind.id,3,grinderId,1])).rows[0].result.batch_id;
+  await db.query("update coffee.bags set status='QUEUED' where id=$1",[first]);
+  await db.query("update coffee.bags set status='COMPLETED' where id=$1",[bagIds[2]]);
 
   await t.test('auth is identical to catalog product and packing jobs permissions',async()=>{
     state.auth={error:Response.json({error:'UNAUTHORIZED'},{status:401})};state.calls=[];
@@ -73,7 +94,7 @@ test('catalog and jobs search routes',async t=>{
   await t.test('Thai, case-insensitive English and SKU match one active barcode per product',async()=>{
     for(const q of ['กาแฟ',' fReNcH ','rb-hk-thai']){
       const response=await catalog(request({q}));assert.equal(response.status,200);
-      assert.deepEqual((await response.json()).products,[{id:thai,sku:'RB-HK-THAI',name:'กาแฟ French Roast',size_grams:250,unit:'bag',barcode:'001234'}]);
+      assert.deepEqual((await response.json()).products,[{id:thai,sku:'RB-HK-THAI',name:'กาแฟ French Roast',size_grams:250,unit:'Pcs',barcode:'001234'}]);
       assert.equal(state.calls.at(-1).actor,actor);
       assert.deepEqual(state.calls.at(-1).values,[q.trim()]);
     }
@@ -94,7 +115,7 @@ test('catalog and jobs search routes',async t=>{
     assert.equal(one.length,20);assert.deepEqual(one,two);assert.equal(one[0].name,'Bounded 00');assert.equal(one[19].name,'Bounded 19');
   });
   await t.test('jobs match snapshots and order number, never terminal jobs during search',async()=>{
-    for(const search of ['กาแฟ',' fReNcH ','rb-hk-thai','hk-search-0001']){
+    for(const search of ['กาแฟ',' fReNcH ','rb-hk-thai',orderNo.toLowerCase()]){
       const result=await (await jobs(request({search}))).json();
       assert.equal(result.jobs.length,2);assert.equal(result.queuedCount,1);
       assert.ok(result.jobs.every(j=>j.status!=='COMPLETED'));

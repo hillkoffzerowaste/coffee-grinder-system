@@ -7,26 +7,50 @@ import { PGlite } from '@electric-sql/pglite';
 test('order list SQL separates active/history before pagination and reports queued SLA',async()=>{
  const db=new PGlite();
  try{
-  await db.exec(`create schema coffee;
-   create table coffee.orders(id int primary key,order_no text,source text,status text,total_bags int,created_at timestamptz,note text);
-   create table coffee.bags(order_id int,status text,created_at timestamptz,size_grams_snapshot int,started_at timestamptz,completed_at timestamptz);
-   insert into coffee.orders select n,'HK-'||n,'COUNTER',case when n<=55 then 'OPEN' else 'COMPLETED' end,1,now() from generate_series(1,110) n;
-   insert into coffee.bags values(55,'QUEUED',now()-interval '2 minutes',250,null,null),(55,'GRINDING',now(),250,now()-interval '90 seconds',null);`);
+  // ยึดสคีมาจริงจาก migration ไม่ประกาศตารางเอง fixture จะได้ไม่ drift จาก production
+  for(const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes']){
+   await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(/\r\n/g,'\n'));
+  }
+  const owner=randomUUID();
+  await db.query("insert into coffee.accounts(id,password_hash) values ($1,'fixture-only')",[owner]);
+  await db.query("insert into coffee.profiles(id,username,display_name,role,station) values ($1,'lister','lister','counter','counter')",[owner]);
+  await db.query(`insert into coffee.orders(client_request_id,request_payload,source,status,total_bags,created_by)
+   select gen_random_uuid(),'[]'::jsonb,'COUNTER',case when n<=55 then 'OPEN' else 'COMPLETED' end,1,$1 from generate_series(1,110) n`,[owner]);
+  const midOrder=(await db.query("select id from coffee.orders where status='OPEN' order by created_at desc,id desc limit 1")).rows[0].id;
+  const item=(await db.query(`insert into coffee.order_items(order_id,product_id,grind_id,quantity,client_line_id,blend_group_id,blend_group_no,process_mode)
+   select $1,p.id,g.id,2,'line-1','g1',1,'GROUND' from coffee.products p, coffee.grind_size_codes g
+   where p.size_grams>=200 and g.grind_value='6' limit 1 returning id`,[midOrder])).rows[0].id;
+  await db.query(`insert into coffee.bags(order_id,order_item_id,product_id,grind_id,bag_no,status,started_at,created_at,
+    blend_group_id,blend_group_no,process_mode,product_name_snapshot,sku_snapshot,size_grams_snapshot,product_barcode_snapshot,grind_value_snapshot)
+   select $1,$2,i.product_id,i.grind_id,n,case when n=1 then 'QUEUED' else 'CLAIMED' end,
+    case when n=1 then null else now()-interval '90 seconds' end,
+    case when n=1 then now()-interval '2 minutes' else now() end,
+    'g1',1,'GROUND','Test beans','RB-LIST',250,'001234567890','6'
+   from coffee.order_items i, generate_series(1,2) n where i.id=$2`,[midOrder,item]);
   const source=await readFile('src/app/api/orders/route.ts','utf8');
   const sql=/readRows\(auth.profile.id,`([\s\S]*?)`/.exec(source)?.[1];
   assert.ok(sql,'test executes the actual route query');
-  const active=(await db.query(sql,[true,0])).rows;
-  const history=(await db.query(sql,[false,0])).rows;
+  const active=(await db.query(sql,[true,0,null,null])).rows;
+  const history=(await db.query(sql,[false,0,null,null])).rows;
   assert.equal(active.length,51);assert.ok(active.every(o=>o.status==='OPEN'));
   assert.equal(history.length,51);assert.ok(history.every(o=>o.status==='COMPLETED'));
   assert.equal(active[0].overdue_queued_count,1);
   assert.equal(active[0].total_grams,500);
   assert.ok(active[0].grinding_started_at);
-  const second=(await db.query(sql,[false,50])).rows;
+  const second=(await db.query(sql,[false,50,null,null])).rows;
   assert.equal(second.length,5);
   assert.equal(new Set([...history.slice(0,50),...second].map(o=>o.id)).size,55);
-  await db.exec("update coffee.orders set status='COMPLETED' where id=55");
-  assert.ok(!(await db.query(sql,[true,0])).rows.some(o=>o.id===55));
+  // กรองวันตามเวลาไทย และค้นหาแตะทั้งเลขออเดอร์ ชื่อสินค้า SKU และชื่อคนบด
+  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok'}).format(new Date());
+  assert.equal((await db.query(sql,[true,0,today,null])).rows.length,51,'orders created now belong to the Bangkok day');
+  assert.equal((await db.query(sql,[true,0,'2000-01-01',null])).rows.length,0,'another day filters everything out');
+  const bySku=(await db.query(sql,[true,0,null,'rb-list'])).rows;
+  assert.equal(bySku.length,1);assert.equal(bySku[0].id,midOrder);
+  assert.equal((await db.query(sql,[true,0,null,bySku[0].order_no.toLowerCase()])).rows.length,1,'order number search is case-insensitive');
+  assert.equal((await db.query(sql,[true,0,null,'no-such-thing'])).rows.length,0);
+  await db.query("update coffee.orders set status='COMPLETED' where id=$1",[midOrder]);
+  assert.ok(!(await db.query(sql,[true,0,null,null])).rows.some(o=>o.id===midOrder));
  }finally{await db.close();}
 });
 

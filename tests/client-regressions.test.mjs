@@ -244,7 +244,7 @@ test('web app manifest is configured for the desktop grinding application',async
 test('order monitor shows queued wait summary and overdue warning',async()=>{
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(url)=>{
-  if(url==='/api/orders')return json({orders:[{id:'order-1',order_no:'HK-001',created_at:new Date(Date.now()-90000).toISOString(),total_bags:4,total_grams:500,grinding_started_at:new Date(Date.now()-90000).toISOString(),completed_at:null,status:'OPEN',queued_count:2,active_count:1,completed_count:1,oldest_queued_at:new Date(Date.now()-121000).toISOString(),overdue_queued_count:1,progress:{QUEUED:2,GRINDING:1,COMPLETED:1}}]});
+  if(url.startsWith('/api/orders?view=active'))return json({orders:[{id:'order-1',order_no:'HK-001',created_at:new Date(Date.now()-90000).toISOString(),total_bags:4,total_grams:500,grinding_started_at:new Date(Date.now()-90000).toISOString(),completed_at:null,status:'OPEN',queued_count:2,active_count:1,completed_count:1,oldest_queued_at:new Date(Date.now()-121000).toISOString(),overdue_queued_count:1,progress:{QUEUED:2,GRINDING:1,COMPLETED:1}}]});
   return json({bags:[]});
  };
  const unmount=await mount(OrderMonitor);
@@ -268,7 +268,7 @@ test('monitor moves completed work out of active view, colors history and clears
  const item={id:'order-moving',order_no:'HK-MOVING',created_at:new Date().toISOString(),total_bags:1,total_grams:250,grinding_started_at:null,completed_at:null,status:'OPEN',queued_count:1,active_count:0,completed_count:0,oldest_queued_at:null,overdue_queued_count:0,progress:{QUEUED:1}};
  globalThis.fetch=async(url)=>{
   if(url.startsWith('/api/orders?view=history'))return json({orders:[{...item,status:'COMPLETED',queued_count:0,completed_count:1,progress:{COMPLETED:1}}]});
-  if(url==='/api/orders')return json({orders:completed?[]:[item]});
+  if(url.startsWith('/api/orders?view=active'))return json({orders:completed?[]:[item]});
   return json({bags:[]});
  };
  const unmount=await mount(OrderMonitor);
@@ -670,7 +670,7 @@ test('counter and manual orders retain identical recovery requests for malformed
    if(url==='/api/orders'&&init?.method==='POST'){
     calls.push(init.body);return calls.length===1?json(payload,status):json({order:{id:orderId,order_no:'HK-SAVED',total_bags:1,batch_id:source==='PACKING_MANUAL'?batchId:null}});
    }
-   assert.equal(url,'/api/orders');return json({orders:[]});
+   assert.ok(url.startsWith('/api/orders?view='),url);return json({orders:[]});
   });
   let unmount=await mount(CounterWorkspace,{source});
   try{

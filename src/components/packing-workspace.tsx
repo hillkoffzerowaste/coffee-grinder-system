@@ -6,7 +6,7 @@ import {Topbar} from "@/components/topbar";
 import {GrindBarcodes} from "@/components/grind-barcodes";
 import {QuantityDialog} from "@/components/quantity-dialog";
 import {SizeTag} from "@/components/size-tag";
-import {DailyHistory} from "@/components/daily-history";
+import {PackingHistory} from "@/components/packing-history";
 import {BlendBadge} from "@/components/blend-badge";
 import {SoundControls} from "@/components/sound-controls";
 import {useSounds} from "@/lib/use-sounds";
@@ -28,6 +28,7 @@ const sameWork=(job:BagJob,ref:BagJob)=>groupKey(job)===groupKey(ref)&&job.produ
 
 export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile:Profile;initialManual?:boolean;uiConfig?:UiConfig}){
  const [manualOpen,setManualOpen]=useState(initialManual);
+ const [pane,setPane]=useState<"work"|"history">("work");
  const [jobs,setJobs]=useState<BagJob[]>([]),[queuedCount,setQueuedCount]=useState(0),[hasMore,setHasMore]=useState(false);
  const [context,setContext]=useState<BagJob|null>(null),[orderJobs,setOrderJobs]=useState<BagJob[]>([]),[candidates,setCandidates]=useState<BagJob[]>([]);
  const [batchId,setBatchId]=useState(""),[batchJobs,setBatchJobs]=useState<BagJob[]>([]),[revision,setRevision]=useState(0);
@@ -78,7 +79,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
  },[context,batchId,revision]);
  async function choose(job:BagJob){
   if(operation.current||pendingRef.current||recoveryError)return;
-  setError("");setMessage("");setGrind(null);setWholeBeanReady(false);setCandidates([]);setBatchId("");setBatchJobs([]);setContext(null);setOrderJobs([]);
+  setPane("work");  setError("");setMessage("");setGrind(null);setWholeBeanReady(false);setCandidates([]);setBatchId("");setBatchJobs([]);setContext(null);setOrderJobs([]);
   if(job.status==="GRINDING"&&job.grinding_batch_id){setBatchId(job.grinding_batch_id);refocus();return;}
   operation.current=true;setBusy(true);
   try{const detail=await apiFetch<Queue>(`/api/jobs?orderId=${job.order_id}`);setOrderJobs(detail.jobs);setContext(job);queueRef.current?.scrollTo({top:0});}
@@ -123,7 +124,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    const result=await apiFetch<BatchResult>(saved.path,{method:"POST",body:saved.body});
    if(!batchCompleteSchema.safeParse({clientRequestId:JSON.parse(saved.body).clientRequestId,batchId:result.batch?.batch_id}).success||!Array.isArray(result.batch?.bag_ids))throw new ApiError("ผลตอบกลับไม่ครบ กรุณายืนยันซ้ำด้วยข้อมูลเดิม",502);
    sessionStorage.removeItem(storageKey);pendingRef.current=null;setPending(null);setGrind(null);setWholeBeanReady(false);setContext(null);setCandidates([]);setOrderJobs([]);
-   if(saved.path==="/api/jobs/start"){setBatchId(result.batch.batch_id);setMessage(JSON.parse(saved.body).grindId===null?"ยืนยันแล้ว — กำลังเตรียมเมล็ด":"ยืนยันแล้ว — กำลังบด");}
+   if(saved.path==="/api/jobs/start"){setPane("work");setBatchId(result.batch.batch_id);setMessage(JSON.parse(saved.body).grindId===null?"ยืนยันแล้ว — กำลังเตรียมเมล็ด":"ยืนยันแล้ว — กำลังบด");}
    else{setBatchId("");setBatchJobs([]);setMessage("เสร็จสิ้น — จัดเก็บในประวัติแล้ว");}
    sound.play("success");setRevision(n=>n+1);
   }catch(e){
@@ -169,9 +170,13 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    {hasMore&&<div className="notice">แสดง 1,000 ถุงแรก — สแกนบาร์โค้ดหรือเลขคิวเพื่อค้นหางานที่เหลือ</div>}
    <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>ชุด / สินค้า / ออเดอร์</th><th>ขนาด</th><th>วิธีเตรียม</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{visibleRows.map(j=>{const members=membersOf(j),mixed=new Set(members.map(m=>m.size_grams_snapshot)).size>1;return <tr key={j.grinding_batch_id??`${j.order_id}:${j.blend_group_no??j.id}`} className={members.length>1&&j.process_mode!=="WHOLE_BEAN"?"is-blend-row":undefined}><td>#{j.queue_seq}</td><td><span className="band-parts">ชุดที่ {j.blend_group_no??"-"}<BlendBadge skuCount={members.length} mode={j.process_mode} /></span>{members.map(m=><div key={m.sku_snapshot} className="band-parts">{m.product_name_snapshot} <small>· {m.sku_snapshot}</small>{mixed&&<SizeTag grams={m.size_grams_snapshot} mode={m.process_mode} />}</div>)}<small>{orderNo(j)}</small>{j.orders?.note&&<div className="notice order-note"><strong>หมายเหตุ:</strong> {j.orders.note}</div>}</td><td>{mixed?<span className="muted">คละขนาด</span>:<SizeTag grams={j.size_grams_snapshot} mode={j.process_mode} />}</td><td>{j.process_mode==="WHOLE_BEAN"?"เมล็ด":`บดเบอร์ ${j.grind_value_snapshot}`}</td><td><span className={`status ${j.status==="QUEUED"?"warn":"info"}`}>{jobStatusLabels[j.status]}</span>{j.grinding_batch_id&&<small> · ชุดงาน</small>}</td><td>{members.map(m=><button key={m.sku_snapshot} className="button secondary" disabled={busy||!!pending||recoveryError} onClick={()=>void choose(m)}>เปิดงาน{members.length>1?` · ${m.sku_snapshot}`:""}</button>)}</td></tr>;})}</tbody></table>{!jobs.length&&<div className="empty">ไม่มีงานในคิวนี้</div>}</div>
    <small>อัปเดตล่าสุด {lastSync||"กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
-   <DailyHistory/>
   </section>
-  <aside className="panel packing-detail"><h2>{batchId?"กำลังบด":"งานที่เลือก"}</h2><div className="detail-content">
+  <aside className="panel packing-detail">
+   <div className="monitor-tabs" aria-label="แผงห้องแพ็ค">
+    <button type="button" className="button secondary" aria-pressed={pane==="work"} onClick={()=>setPane("work")}>{batchId?"กำลังบด":"งานที่เลือก"}</button>
+    <button type="button" className="button secondary" aria-pressed={pane==="history"} onClick={()=>setPane("history")}>ติดตามงาน</button>
+   </div>
+   {pane==="history"?<PackingHistory revision={revision}/>:<><div className="detail-content">
    {candidates.length>1&&<><div className="notice">พบหลายชุดงาน กรุณาเลือกออเดอร์ก่อนสแกนเบอร์บด และเลือกชุดให้ถูกต้อง</div>{candidates.map(j=><button key={j.grinding_batch_id??(j.status==="GRINDING"?j.id:groupKey(j))} className="button secondary" disabled={busy||!!pending} onClick={()=>void choose(j)}>{orderNo(j)} · ชุดที่ {j.blend_group_no??"-"} · คิว #{j.queue_seq} · {j.product_name_snapshot} · {jobStatusLabels[j.status]}</button>)}</>}
    {context&&<><strong>{orderNo(context)} · ชุดที่ {context.blend_group_no??"-"}</strong><span className="band-parts"><BlendBadge skuCount={skuCountIn(orderJobs,context)} mode={context.process_mode} /></span><div className="product-name">{context.product_name_snapshot}</div><div>{context.sku_snapshot} · <SizeTag grams={context.size_grams_snapshot} mode={context.process_mode} /></div>{context.orders?.note&&<div className="notice order-note"><strong>หมายเหตุ:</strong> {context.orders.note}</div>}<div className="notice">{context.process_mode==="WHOLE_BEAN"?"งานเมล็ด — ตรวจสินค้าและระบุจำนวนถุงเพื่อเริ่มงาน":"สแกนเบอร์บด จากนั้นระบุจำนวนถุงเพื่อเข้าสถานะกำลังบด"}</div><div>เบอร์ที่รอรับ: {[...new Set(orderJobs.filter(j=>sameWork(j,context)&&canStart(j)).map(j=>j.grind_value_snapshot).filter(Boolean))].join(", ")||"เมล็ด/ไม่มี"}</div></>}
    {context&&context.status!=="GRINDING"&&<div className="field"><label htmlFor="packing-grind-select">เลือกเบอร์บดเอง (กรณีไม่มีบาร์โค้ด)</label><select id="packing-grind-select" className="select" value="" disabled={busy||!!pending} onChange={e=>void selectManualGrind(e.target.value)}><option value="">เลือกเบอร์บด</option>{grinds.filter(g=>orderJobs.some(j=>sameWork(j,context)&&canStart(j)&&j.grind_id===g.id)).map(g=><option value={g.id} key={g.id}>เบอร์ {g.grind_value}</option>)}</select></div>}
@@ -183,7 +188,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    {batchId&&<button data-testid="job-action" className="button large" disabled={busy||!!pending||!canCompleteBatch} onClick={()=>void execute({path:"/api/jobs/complete",body:JSON.stringify({clientRequestId:crypto.randomUUID(),batchId}),description:`เสร็จสิ้นชุดงาน ${batchJobs.length} ถุง`})}>เสร็จสิ้น {batchJobs.length} ถุง</button>}
    {batchJobs.length>0&&!canCompleteBatch&&<small>ผู้รับงานชุดนี้ต้องเป็นผู้ยืนยันเสร็จสิ้น</small>}
    <small>รอรับ {queuedCount} ถุง · เสียงเตือนระดับ 100% ดังซ้ำทุก 3 วินาทีจนงานรอรับเหลือ 0 ถุง</small>
-  </div></aside>
+  </div></>}</aside>
    {(grind||wholeBeanReady)&&context&&<QuantityDialog title={context.process_mode==="WHOLE_BEAN"?"ยืนยันจำนวนเมล็ด":"ยืนยันจำนวนเพื่อเริ่มบด"} description={`${orderNo(context)} · ${context.product_name_snapshot} · ${context.size_grams_snapshot} g · ${context.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์บด ${grind?.grind_value}`}`} max={pending?99:Math.min(99,available.length)} locked={!!pending} busy={busy} error={error} onConfirm={start} onCancel={()=>{if(pendingRef.current){setError("ต้องยืนยันรายการค้างก่อน");return;}setGrind(null);setWholeBeanReady(false);setError("");refocus();}}>
    <div className="field"><label htmlFor="grinder">คนบด</label><select id="grinder" className="select" required disabled={busy||!!pending} value={grinderId} onChange={e=>setGrinderId(e.target.value)}><option value="">เลือกคนบด</option>{grinders.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
    {pending&&<div className="notice">ยืนยันซ้ำด้วยจำนวนและคนบดเดิมเท่านั้น: {pending.description}</div>}

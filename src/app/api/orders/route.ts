@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/auth";
 import { readRows, databaseError } from "@/lib/db";
-import {orderSchema,counterNoteOnly} from "@/lib/validation";
+import {orderSchema,counterNoteOnly,validDay,validSearch} from "@/lib/validation";
 export async function GET(request:Request) {
  const auth=await requireApiUser();if(auth.error)return auth.error;
  const params=new URL(request.url).searchParams;
  const view=params.get("view")??"active",page=Number(params.get("page")??0);
+ const day=params.get("day"),q=params.get("q");
  if(!["active","history"].includes(view)||!Number.isSafeInteger(page)||page<0||page>100000)return NextResponse.json({error:"ตัวกรองไม่ถูกต้อง"},{status:400});
+ if(day!==null&&!validDay(day))return NextResponse.json({error:"วันที่ไม่ถูกต้อง"},{status:400});
+ if(q!==null&&!validSearch(q))return NextResponse.json({error:"คำค้นต้องมีความยาว 1–100 ตัวอักษร"},{status:400});
  try{const rows=await readRows(auth.profile.id,`select o.id,o.order_no,o.source,o.status,o.total_bags,o.created_at,o.note,
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status='QUEUED') as queued_count,
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status in ('CLAIMED','GRINDING')) as active_count,
@@ -17,8 +20,14 @@ export async function GET(request:Request) {
    (select min(b.started_at) from coffee.bags b where b.order_id=o.id and b.started_at is not null) as grinding_started_at,
    (select max(b.completed_at) from coffee.bags b where b.order_id=o.id and b.completed_at is not null) as completed_at,
    coalesce((select jsonb_object_agg(s.status,s.n) from (select b.status,count(*)::int n from coffee.bags b where b.order_id=o.id group by b.status) s),'{}'::jsonb) progress
-   from coffee.orders o where ($1::boolean and o.status='OPEN') or (not $1::boolean and o.status in ('COMPLETED','CANCELLED'))
-   order by o.created_at desc,o.id desc limit 51 offset $2`,[view==="active",page*50]);
+   from coffee.orders o where (($1::boolean and o.status='OPEN') or (not $1::boolean and o.status in ('COMPLETED','CANCELLED')))
+   and ($3::date is null or (o.created_at >= ($3::date)::timestamp at time zone 'Asia/Bangkok'
+     and o.created_at < (($3::date) + 1)::timestamp at time zone 'Asia/Bangkok'))
+   and ($4::text is null or strpos(lower(o.order_no),lower($4))>0 or exists(select 1 from coffee.bags b
+     where b.order_id=o.id and (strpos(lower(b.product_name_snapshot),lower($4))>0
+       or strpos(lower(b.sku_snapshot),lower($4))>0
+       or strpos(lower(coalesce(b.grinder_name_snapshot,'')),lower($4))>0)))
+   order by o.created_at desc,o.id desc limit 51 offset $2`,[view==="active",page*50,day,q]);
    return NextResponse.json({orders:rows.slice(0,50),hasMore:rows.length>50});
  } catch(error) { const e=databaseError(error); return NextResponse.json({error:e.message},{status:e.status}); }
 }

@@ -10,9 +10,10 @@ type Bag={id:string;bag_no:number;status:JobStatus;product_name_snapshot:string;
 function waitMinutes(oldestQueuedAt:string|null){const time=Date.parse(oldestQueuedAt??"");return Number.isFinite(time)?Math.max(0,Math.floor((Date.now()-time)/60000)):0;}
 function statusClass(status:string){return status==="COMPLETED"?"ok":status==="QUEUED"?"warn":["CLAIMED","GRINDING"].includes(status)?"info":"";}
 function duration(seconds:number){return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`;}
-export function OrderMonitor({revision}:{revision:number}){
+type MonitorProps={revision:number;defaultView?:"active"|"history";day?:string;query?:string;embedded?:boolean;alerts?:boolean};
+export function OrderMonitor({revision,defaultView="active",day="",query="",embedded=false,alerts=true}:MonitorProps){
  const [orders,setOrders]=useState<Summary[]>([]),[selected,setSelected]=useState("");
- const [view,setView]=useState<"active"|"history">("active"),[page,setPage]=useState(0),[hasMore,setHasMore]=useState(false),[loaded,setLoaded]=useState(false);
+ const [view,setView]=useState<"active"|"history">(defaultView),[page,setPage]=useState(0),[hasMore,setHasMore]=useState(false),[loaded,setLoaded]=useState(false);
  const [bags,setBags]=useState<Bag[]>([]),[error,setError]=useState(""),[updated,setUpdated]=useState("");
  const [overdueNotice,setOverdueNotice]=useState<Summary|null>(null);
  const [detailLoaded,setDetailLoaded]=useState(false);
@@ -22,7 +23,10 @@ export function OrderMonitor({revision}:{revision:number}){
   async function update(){
    if(busy)return;busy=true;
    try{
-    const result=await apiFetch<{orders:Summary[];hasMore?:boolean}>(view==="active"&&page===0?"/api/orders":`/api/orders?view=${view}&page=${page}`);
+    const filters=new URLSearchParams({view,page:String(page)});
+    if(day)filters.set("day",day);
+    if(query)filters.set("q",query);
+    const result=await apiFetch<{orders:Summary[];hasMore?:boolean}>(`/api/orders?${filters}`);
     if(!active||current!==generation.current)return;
     const visible=result.orders.filter(order=>view==="active"?order.status==="OPEN":order.status!=="OPEN");
     setOrders(visible);setHasMore(!!result.hasMore);setLoaded(true);setError("");setUpdated(new Date().toLocaleTimeString("th-TH"));
@@ -40,9 +44,10 @@ export function OrderMonitor({revision}:{revision:number}){
   const refresh=()=>{if(document.visibilityState==="visible")void update();};
   window.addEventListener("focus",refresh);document.addEventListener("visibilitychange",refresh);
   return()=>{active=false;clearInterval(timer);window.removeEventListener("focus",refresh);document.removeEventListener("visibilitychange",refresh);};
- },[selected,revision,view,page]);
+ },[selected,revision,view,page,day,query]);
  function changeView(next:"active"|"history",nextPage=0){setView(next);setPage(nextPage);setOrders([]);setSelected("");setBags([]);setDetailLoaded(false);setLoaded(false);setHasMore(false);setError("");setUpdated("");}
- return <aside className="panel order-monitor"><h2>ติดตามงานบด–แพ็ค</h2>
+ const Shell=embedded?"div":"aside";
+ return <Shell className={embedded?"order-monitor":"panel order-monitor"}>{!embedded&&<h2>ติดตามงานบด–แพ็ค</h2>}
   <div className="monitor-tabs" aria-label="มุมมองออเดอร์"><button type="button" className="button secondary" aria-pressed={view==="active"} onClick={()=>changeView("active")}>งานค้าง</button><button type="button" className="button secondary" aria-pressed={view==="history"} onClick={()=>changeView("history")}>ประวัติ</button></div>
   <small>อัปเดตอัตโนมัติทุก 2 วินาที · ล่าสุด {updated||"กำลังโหลด"}</small>
   {error&&<div className="notice error" role="alert">{error}</div>}
@@ -61,6 +66,6 @@ export function OrderMonitor({revision}:{revision:number}){
    </div>)}</div>}
   </section>})}</div>{!orders.length&&<p>{!loaded?"กำลังโหลดออเดอร์...":view==="active"?"ไม่มีงานค้างในหน้านี้":"ไม่มีประวัติในหน้านี้"}</p>}
   {(page>0||hasMore)&&<div className="row"><button type="button" className="button secondary" disabled={page===0} onClick={()=>changeView(view,page-1)}>ก่อนหน้า</button><span>หน้า {page+1}</span><button type="button" className="button secondary" disabled={!hasMore} onClick={()=>changeView(view,page+1)}>ถัดไป</button></div>}
-  {overdueNotice&&<section className="overdue-order-dialog" role="alertdialog" aria-modal="true" aria-label="แจ้งเตือนงานรอรับ"><h3>ยังไม่มีคนรับงานเกิน 1 นาที</h3><p><strong>{overdueNotice.order_no}</strong> · รอรับ {overdueNotice.queued_count} ถุง · ค้างนานสุด {waitMinutes(overdueNotice.oldest_queued_at)} นาที</p><button type="button" className="button large" onClick={()=>setOverdueNotice(null)}>รับทราบ</button></section>}
- </aside>;
+  {alerts&&overdueNotice&&<section className="overdue-order-dialog" role="alertdialog" aria-modal="true" aria-label="แจ้งเตือนงานรอรับ"><h3>ยังไม่มีคนรับงานเกิน 1 นาที</h3><p><strong>{overdueNotice.order_no}</strong> · รอรับ {overdueNotice.queued_count} ถุง · ค้างนานสุด {waitMinutes(overdueNotice.oldest_queued_at)} นาที</p><button type="button" className="button large" onClick={()=>setOverdueNotice(null)}>รับทราบ</button></section>}
+ </Shell>;
 }

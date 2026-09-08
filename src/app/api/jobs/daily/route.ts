@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/auth";
 import { readRows, databaseError } from "@/lib/db";
-function validDay(day:string){
- if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return false;
- const parsed=new Date(`${day}T00:00:00Z`);
- // Date ยอมให้ 2026-02-30 เลื่อนไปเป็น 03-02 เงียบ ๆ จึงต้องเทียบกลับว่าตรงวันเดิม
- return !Number.isNaN(parsed.getTime())&&parsed.toISOString().startsWith(day);
-}
+import { validDay } from "@/lib/validation";
 export async function GET(request:Request){
  const auth=await requireApiUser(["packer","admin"]);if(auth.error)return auth.error;
  const day=new URL(request.url).searchParams.get("day");

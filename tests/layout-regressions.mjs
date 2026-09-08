@@ -78,7 +78,7 @@ try {
   for (const size of [{ width: 1366, height: 768 }, { width: 1707, height: 710 }, { width: 1920, height: 1080 }]) {
     for (const station of ['counter', 'packing', 'packingmanual']) {
       const page = await browser.newPage({ viewport: size }); page.setDefaultTimeout(10000);
-      const errors = [], unexpected = [], posts = [], queries = [], dailyCalls = [];
+      const errors = [], unexpected = [], posts = [], queries = [], dailyCalls = [], orderQueries = [];
       page.on('pageerror', error => errors.push(error.message));
       let currentJobs = jobs.map(job => ({ ...job }));
       await page.route('**/*', async route => {
@@ -116,6 +116,7 @@ try {
           if (manual) currentJobs = jobs.slice(0, body.lines.reduce((sum,line)=>sum+line.quantity,0)).map(job => ({ ...job, status: 'GRINDING', grinding_batch_id: batchId, claimed_by: profileId, grinder_name_snapshot: 'ผู้ทดสอบ' }));
           data = { order: { id: orderId, order_no: 'HK-TEST-NEW', total_bags: body.lines.reduce((sum, line) => sum + line.quantity, 0), batch_id: manual ? batchId : null } };
         } else if (path === '/api/orders') {
+          orderQueries.push(url.search);
           const summary = { id: orderId, order_no: 'HK-TEST-1', total_bags: 3, status: 'OPEN', queued_count: 3, active_count: 0, completed_count: 0, oldest_queued_at: new Date(Date.now() - 120000).toISOString(), overdue_queued_count: 3, progress: { QUEUED: 3 } };
           data = { orders: url.searchParams.get('view') === 'history' ? [{ ...summary, status: 'COMPLETED', queued_count: 0, completed_count: 3, overdue_queued_count: 0, oldest_queued_at: null, progress: { COMPLETED: 3 } }] : [summary], hasMore: false };
         } else { unexpected.push(`${request.method()} ${path}${url.search}`); await route.fulfill({ status: 500, json: { error: 'Unexpected mocked request' } }); return; }
@@ -245,21 +246,31 @@ try {
         // ขนาดต้องโผล่ที่เดียว: คละขนาดอยู่คอลัมน์ขนาด ส่วนขนาดรายตัวอยู่ติด SKU
         await expect(page.locator('.data-table tbody tr td').nth(2)).toHaveText('คละขนาด');
         await expect(page.locator('.data-table tbody tr td').nth(1).locator('.status.flag-250')).toHaveCount(1);
-        // ประวัติวันนี้โหลดตอนกางเท่านั้น ไม่ยิง API ทิ้งไว้ระหว่างสแกน
-        const history = page.locator('.daily-history');
-        assert.equal(dailyCalls.length, 0, 'daily history must not load before it is opened');
-        await history.locator('summary').click();
+        // ประวัติอยู่หลังแถบ ไม่โหลดจนกว่าจะกดเข้า
+        assert.equal(dailyCalls.length, 0, 'history must not load before its tab is opened');
+        await page.getByRole('button', { name: 'ติดตามงาน', exact: true }).click();
+        const history = page.locator('.packing-history');
+        // แถบนอกกับแถบในต้องไม่ใช้ชื่อซ้ำกัน ไม่งั้นคนกดผิดและ locator ก็กำกวม
+        await expect(page.getByRole('button', { name: 'ประวัติ', exact: true })).toHaveCount(1);
         await expect(history).toContainText('เสร็จ 5 ถุง');
-        // เลือกวันย้อนหลังได้ และต้องส่ง day ไปกับคำขอ
-        await history.locator('#daily-day').fill('2026-09-01');
-        await expect.poll(() => dailyCalls.at(-1)).toBe('?day=2026-09-01');
-        assert.equal(dailyCalls[0], '', 'the first load asks for the server default day');
         await expect(history).toContainText('1.5 กก.');
         await expect(history).toContainText('กิต 3 ถุง');
-        await expect(history.locator('.data-table tbody tr')).toHaveCount(2);
-        await screenshot(page, `${name}-daily`);
-        await history.locator('summary').click();
-        await expect(history.locator('.data-table')).toBeHidden();
+        // การ์ดออเดอร์ชุดเดียวกับหน้าร้าน และเริ่มที่มุมมองประวัติของวันปัจจุบัน
+        await expect(history.locator('.order-monitor .monitor-list section')).toHaveCount(1);
+        await expect(history).toContainText('HK-TEST-1');
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+        assert.equal(await history.locator('#history-day').inputValue(), today);
+        assert.ok(orderQueries.some(q => q.includes('view=history') && q.includes(`day=${today}`)), 'history asks for the current Bangkok day');
+        // เลือกวันย้อนหลังต้องส่งต่อทั้งสรุปและรายการการ์ด
+        await history.locator('#history-day').fill('2026-09-01');
+        await expect.poll(() => dailyCalls.at(-1)).toBe('?day=2026-09-01');
+        await expect.poll(() => orderQueries.some(q => q.includes('day=2026-09-01'))).toBe(true);
+        // ค้นหาหน่วงก่อนยิง แล้วส่ง q ไปกับคำขอ
+        await history.locator('#history-search').fill('ซองแดง');
+        await expect.poll(() => orderQueries.some(q => q.includes('q=') && q.includes('day=2026-09-01'))).toBe(true);
+        await screenshot(page, `${name}-history`);
+        await page.getByRole('button', { name: 'งานที่เลือก', exact: true }).click();
+        await expect(page.locator('.packing-history')).toHaveCount(0);
         await page.locator('#packing-scan').fill('ซองแดง');
         const jobResult=page.locator('.search-result', { hasText: product.sku });
         assert.ok(await jobResult.evaluate(button=>parseFloat(getComputedStyle(button).fontSize)<=15),'search-result font should stay compact');
