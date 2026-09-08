@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -73,7 +73,7 @@ test('scan batch migration and RPC contracts', async (t) => {
     const older = await create(lines(1));
     const order = await create([...lines(3),{...lines(1)[0],clientLineId:'eight',grindId:grind8,grindBarcode:'990008'}]);
     const before = await bags(order.id);
-    await assert.rejects(transition(before[0].id,'QUEUED','CLAIMED',packer),/earliest/);
+    await assert.rejects(transition(before[0].id,'QUEUED','CLAIMED',packer),/Invalid transition/);
     const result = await start(order.id);
     assert.deepEqual(Object.keys(result).sort(),['bag_ids','batch_id','order_id','quantity']);
     assert.deepEqual(result.bag_ids,before.slice(0,2).map(b => b.id));
@@ -173,6 +173,16 @@ test('scan batch migration and RPC contracts', async (t) => {
     assert.equal((await bags(result.id)).filter(b=>b.blend_group_no===1&&b.status==='QUEUED').length,2);
   });
 
+  await t.test('grinding requires a batch and the legacy claim path is closed', async () => {
+    const order = await create(lines(2)), created = await bags(order.id);
+    await assert.rejects(transition(created[0].id,'QUEUED','CLAIMED'),/Invalid transition/);
+    await query("update coffee.bags set status='CLAIMED',claimed_by=$1 where id=$2",[packer,created[0].id]);
+    await assert.rejects(transition(created[0].id,'CLAIMED','GRINDING',packer),/Invalid transition/);
+    // ถึงจะเขียนตรงเข้าตาราง ก็ยังตั้ง GRINDING โดยไม่มี batch ไม่ได้
+    await assert.rejects(query("update coffee.bags set status='GRINDING' where id=$1",[created[0].id]),/bags_grinding_needs_batch/);
+    assert.equal((await bags(order.id))[0].status,'CLAIMED');
+  });
+
   await t.test('invalid quantities, barcode, grind, grinder and excess requests have no effects', async () => {
     const order = await create(lines(2));
     for (const quantity of [null,0,-1,501]) await rejectsUnchanged(() => start(order.id,{quantity}),/Invalid quantity/);
@@ -225,11 +235,9 @@ test('scan batch migration and RPC contracts', async (t) => {
 
   await t.test('legacy CLAIMED ownership is enforced and admin may adopt a claim', async () => {
     const order = await create(lines(3)), initial = await bags(order.id);
-    await transition(initial[0].id,'QUEUED','CLAIMED');
-    // Fixture represents pre-migration claims by two operators.
-    await query('update coffee.bags set claimed_by=$1 where id=$2',[other,initial[0].id]);
-    await transition(initial[1].id,'QUEUED','CLAIMED');
-    await query('update coffee.bags set claimed_by=$1 where id=$2',[packer,initial[1].id]);
+    // Fixture represents pre-migration claims by two operators; CLAIMED is no longer reachable through transition_bag.
+    await query("update coffee.bags set status='CLAIMED',claimed_by=$1 where id=$2",[other,initial[0].id]);
+    await query("update coffee.bags set status='CLAIMED',claimed_by=$1 where id=$2",[packer,initial[1].id]);
     const result = await start(order.id,{quantity:2});
     assert.deepEqual(result.bag_ids,initial.slice(1).map(b => b.id));
     await rejectsUnchanged(() => start(order.id,{quantity:1}),/Insufficient/);

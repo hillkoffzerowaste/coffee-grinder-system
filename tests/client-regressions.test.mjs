@@ -97,7 +97,7 @@ function bag(overrides={}) {
     product_barcode_snapshot:product.barcode,created_at:new Date().toISOString(),...overrides};
 }
 function packingApi(t,jobs=[bag()]) {
-  const state={jobs,calls:[],unexpected:[],start:null,complete:null,legacyJobId:null,grinds:[grind,wrongGrind]};
+  const state={jobs,calls:[],unexpected:[],start:null,complete:null,grinds:[grind,wrongGrind]};
   const queue=items=>json({jobs:items,queuedCount:items.filter(j=>j.status==='QUEUED').length});
   state.commitStart=body=>{
     const selected=state.jobs.filter(j=>j.order_id===body.orderId&&j.product_barcode_snapshot===body.productBarcode&&j.grind_id===body.grindId&&(j.status==='QUEUED'||j.status==='CLAIMED')).slice(0,body.quantity);
@@ -127,12 +127,6 @@ function packingApi(t,jobs=[bag()]) {
       assert.ok(selected.length);assert.ok(selected.every(j=>j.status==='GRINDING'));
       state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'COMPLETED'}:j);
       return json({batch:{batch_id:body.batchId,bag_ids:selected.map(j=>j.id)}});
-    }
-    if(method==='POST'&&state.legacyJobId&&url===`/api/jobs/${state.legacyJobId}/transition`){
-      assert.deepEqual(JSON.parse(init.body),{expectedStatus:'GRINDING',nextStatus:'COMPLETED'});
-      const job=state.jobs.find(j=>j.id===state.legacyJobId);assert.equal(job.status,'GRINDING');
-      state.jobs=state.jobs.map(j=>j===job?{...j,status:'COMPLETED'}:j);
-      return json({job:{...job,status:'COMPLETED'}});
     }
     state.unexpected.push({url,method});throw new Error(`Unexpected API ${method} ${url}`);
   });
@@ -632,23 +626,6 @@ test('malformed batch completion success preserves persisted request and retries
   assert.deepEqual(api.posts().map(c=>c.url),['/api/jobs/complete','/api/jobs/complete']);
   assert.equal(api.posts()[1].body,original);assert.equal(sessionStorage.getItem(key),null);
   assert.ok(document.body.textContent.includes('เสร็จสิ้น — จัดเก็บในประวัติแล้ว'));
- }finally{await unmount();}
-});
-
-test('legacy GRINDING jobs without batches remain distinct and complete only the selected job',async(t)=>{
- const jobs=[bag({status:'GRINDING',claimed_by:profile.id}),bag({status:'GRINDING',claimed_by:profile.id,queue_seq:2,bag_no:2})];
- const api=packingApi(t,jobs);api.legacyJobId=jobs[1].id;
- const unmount=await mount(PackingWorkspace);
- try{
-  await scan('packing-scan',product.barcode);
-  const choices=[...document.querySelectorAll('.detail-content button')];assert.equal(choices.length,2);
-  assert.ok(choices.some(b=>b.textContent.includes('คิว #1')));assert.ok(choices.some(b=>b.textContent.includes('คิว #2')));
-  await clickText('คิว #2');assert.equal(document.querySelector('dialog'),null);assert.equal(api.posts().length,0);
-  await clickText('เสร็จสิ้นรายการเดิม');
-  assert.deepEqual(api.posts().map(c=>c.url),[`/api/jobs/${jobs[1].id}/transition`]);
-  assert.deepEqual(JSON.parse(api.posts()[0].body),{expectedStatus:'GRINDING',nextStatus:'COMPLETED'});
-  assert.equal(api.jobs[0].status,'GRINDING');assert.equal(api.jobs[1].status,'COMPLETED');
-  assert.ok(document.body.textContent.includes('เสร็จสิ้นรายการเดิมแล้ว'));
  }finally{await unmount();}
 });
 

@@ -57,6 +57,9 @@ test('terminal jobs cannot be used as expected status', () => {
 });
 test('only the new grinding completion transition is accepted', () => {
   assert.equal(transitionSchema.safeParse({expectedStatus:'GRINDING',nextStatus:'COMPLETED'}).success,true);
+  // เริ่มบดได้ทางเดียวคือ start_scan_batch ซึ่งเซ็ต batch ให้เสมอ สองเส้นทางนี้เคยสร้างถุงกำพร้าได้
+  assert.equal(transitionSchema.safeParse({expectedStatus:'QUEUED',nextStatus:'CLAIMED'}).success,false);
+  assert.equal(transitionSchema.safeParse({expectedStatus:'CLAIMED',nextStatus:'GRINDING',grinderUserId:randomUUID(),grindId:randomUUID()}).success,false);
   for (const nextStatus of ['GROUND','PACKING']) {
     assert.equal(transitionSchema.safeParse({expectedStatus:'GRINDING',nextStatus}).success,false);
   }

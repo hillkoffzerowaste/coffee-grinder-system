@@ -149,13 +149,6 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
   finally{operation.current=false;setBusy(false);refocus();}
  }
  function clearSelection(){if(operation.current||pendingRef.current)return;setContext(null);setCandidates([]);setBatchId("");setBatchJobs([]);setGrind(null);setWholeBeanReady(false);setScan("");setError("");refocus();}
- async function completeLegacy(){
-  if(!context||context.status!=="GRINDING"||operation.current||pendingRef.current)return;
-  operation.current=true;setBusy(true);setError("");
-  try{await apiFetch(`/api/jobs/${context.id}/transition`,{method:"POST",body:JSON.stringify({expectedStatus:"GRINDING",nextStatus:"COMPLETED"})});setContext(null);setMessage("เสร็จสิ้นรายการเดิมแล้ว");}
-  catch(e){setError(e instanceof Error?e.message:"ยืนยันผลไม่สำเร็จ กรุณาตรวจสถานะแล้วลองใหม่");}
-  finally{setRevision(n=>n+1);operation.current=false;setBusy(false);refocus();}
- }
  const rowIndex=new Map<string,BagJob>();
  for(const j of jobs){const k=j.grinding_batch_id??`${j.order_id}:${j.blend_group_no??j.id}`;if(!rowIndex.has(k))rowIndex.set(k,j);}
  const visibleRows=[...rowIndex.values()];
@@ -185,7 +178,6 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
   </div><div className="detail-actions">
    {error&&<div className="notice error" role="alert">{error}</div>}{message&&<div className="notice success" role="status">{message}</div>}
    {pending&&!grind&&<div className="notice"><div>{pending.description}</div><button className="button" disabled={busy} onClick={()=>void execute(pending)}>ยืนยันรายการค้างด้วยข้อมูลเดิม</button></div>}
-   {context?.status==="GRINDING"&&!context.grinding_batch_id&&<button className="button large" disabled={busy||!!pending} onClick={()=>void completeLegacy()}>เสร็จสิ้นรายการเดิม</button>}
    {batchId&&<button data-testid="job-action" className="button large" disabled={busy||!!pending||!canCompleteBatch} onClick={()=>void execute({path:"/api/jobs/complete",body:JSON.stringify({clientRequestId:crypto.randomUUID(),batchId}),description:`เสร็จสิ้นชุดงาน ${batchJobs.length} ถุง`})}>เสร็จสิ้น {batchJobs.length} ถุง</button>}
    {batchJobs.length>0&&!canCompleteBatch&&<small>ผู้รับงานชุดนี้ต้องเป็นผู้ยืนยันเสร็จสิ้น</small>}
    <small>รอรับ {queuedCount} ถุง · เสียงเตือนระดับ 100% ดังซ้ำทุก 3 วินาทีจนงานรอรับเหลือ 0 ถุง</small>

@@ -56,13 +56,11 @@ export const batchCompleteSchema = z.object({clientRequestId:z.uuid(),batchId:z.
 
 export const transitionSchema = z.object({
   expectedStatus: z.enum(["QUEUED", "CLAIMED", "GRINDING", "BLOCKED"]),
-  nextStatus: z.enum(["CLAIMED", "GRINDING", "COMPLETED", "BLOCKED", "CANCELLED"]),
+  nextStatus: z.enum(["COMPLETED", "BLOCKED", "CANCELLED"]),
   grinderUserId: z.uuid().optional(),
   grindId: z.uuid().optional(),
 }).superRefine((transition,ctx) => {
-  const normal = (transition.expectedStatus === "QUEUED" && transition.nextStatus === "CLAIMED")
-    || (transition.expectedStatus === "CLAIMED" && transition.nextStatus === "GRINDING")
-    || (transition.expectedStatus === "GRINDING" && transition.nextStatus === "COMPLETED");
+  const normal = transition.expectedStatus === "GRINDING" && transition.nextStatus === "COMPLETED";
   const adminOnly = ["BLOCKED","CANCELLED"].includes(transition.nextStatus)
     && transition.expectedStatus !== transition.nextStatus;
   if (!normal && !adminOnly) ctx.addIssue({code:"custom",message:"Invalid transition"});
