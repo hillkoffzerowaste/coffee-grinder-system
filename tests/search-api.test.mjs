@@ -30,7 +30,7 @@ test('catalog and jobs search routes',async t=>{
     create table coffee.products(id uuid primary key,sku text,name text,size_grams int,unit text,active boolean);
     create table coffee.product_barcodes(product_id uuid,barcode text,active boolean);
     create table coffee.orders(id uuid primary key,order_no text);
-    create table coffee.bags(id uuid primary key,order_id uuid,grind_id uuid,claimed_by uuid,grinding_batch_id uuid,
+    create table coffee.bags(id uuid primary key,order_id uuid,grind_id uuid,claimed_by uuid,grinding_batch_id uuid,blend_group_id text,blend_group_no int,process_mode text,
       bag_no int,queue_seq bigint,status text,product_name_snapshot text,sku_snapshot text,size_grams_snapshot int,
       grind_value_snapshot text,product_barcode_snapshot text,grinder_name_snapshot text,created_at timestamptz);`);
   const actor=randomUUID(),state={auth:{profile:{id:actor}},calls:[]};
