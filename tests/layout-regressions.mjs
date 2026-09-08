@@ -233,8 +233,13 @@ try {
         await expect(page.locator('.data-table tbody tr td').first()).toHaveText('#1');
         await expect(page.locator('.data-table tbody tr td').nth(2)).toHaveText('คละขนาด');
         await expect(page.locator('.data-table tbody tr').first()).toContainText(product2.sku);
+        // ชุดผสมต้องเปิดงานได้ทีละ SKU ที่ถืออยู่จริง ไม่ใช่บังคับ SKU แรกของกลุ่ม
+        await expect(page.getByRole('button', { name: new RegExp('^เปิดงาน · ') })).toHaveCount(2);
+        // ขนาดต้องโผล่ที่เดียว: คละขนาดอยู่คอลัมน์ขนาด ส่วนขนาดรายตัวอยู่ติด SKU
+        await expect(page.locator('.data-table tbody tr td').nth(2)).toHaveText('คละขนาด');
+        await expect(page.locator('.data-table tbody tr td').nth(1).locator('.status.flag-250')).toHaveCount(1);
         await page.locator('#packing-scan').fill('ซองแดง');
-        const jobResult=page.getByRole('button', { name: new RegExp(product.sku) });
+        const jobResult=page.locator('.search-result', { hasText: product.sku });
         assert.ok(await jobResult.evaluate(button=>parseFloat(getComputedStyle(button).fontSize)<=15),'search-result font should stay compact');
         await screenshot(page, `${name}-search`);
         await jobResult.click();
