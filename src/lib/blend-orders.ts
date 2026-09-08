@@ -22,3 +22,8 @@ export function blendLineSummary(lines: BlendDraftLine[]) {
 export function productLine(product: ProductLookup, blendGroupId: string, mode: BlendMode, grind: GrindLookup | null, quantity: number, clientLineId: string): BlendDraftLine {
   return { clientLineId, product, blendGroupId, mode, grind, quantity };
 }
+
+// 250 g บดถูกหยิบสลับกับขนาดอื่นบ่อย ทั้งหน้าร้านและห้องแพ็คจึงต้องเห็นต่างทันที
+export function isGround250(sizeGrams: number, mode: BlendMode | null | undefined): boolean {
+  return sizeGrams === 250 && (mode ?? "GROUND") === "GROUND";
+}
