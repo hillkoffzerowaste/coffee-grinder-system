@@ -18,6 +18,8 @@
   --focus: #006b73;
   --header: #064f4d;
   --flag-250: #6d28d9;
+  --flag-blend: #9a3412;
+  --flag-blend-bg: #ffe8d9;
 }
 
 * { box-sizing: border-box; }
@@ -159,6 +161,12 @@ a { color: inherit; }
 /* 250 g บดคือขนาดที่หยิบสลับกับ 200/500 g บ่อยที่สุด ม่วงจึงเป็นสีเดียวที่ไม่ชนกับสถานะใด */
 .status.flag-250 { color: var(--surface); background: var(--flag-250); border-color: var(--flag-250); font-weight: 700; }
 .product-size.flag-250 { color: var(--flag-250); }
+/* ชุดผสมกับกาแฟบดเดี่ยวเดินคนละทางในห้องแพ็ค แถบซ้ายหนาคือสิ่งที่แยกออกจากกันได้จากระยะไกล */
+.status.flag-blend { color: var(--surface); background: var(--flag-blend); border-color: var(--flag-blend); font-weight: 700; }
+.data-table tr.group-band > td { background: var(--surface-subtle); border-left: 4px solid var(--border); font-weight: 700; }
+.data-table tr.group-band.is-blend > td { background: var(--flag-blend-bg); border-left-color: var(--flag-blend); }
+.band-parts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.muted { font-weight: 400; color: var(--muted); }
 .order-monitor .notice.order-waiting { border-left: 5px solid #b85d00; background: #fff3e5; }
 .order-monitor .notice.order-active { border-left: 5px solid #2365a5; }
 .order-monitor .notice.order-done { border-left: 5px solid var(--success); background: var(--success-bg); }

@@ -11,7 +11,9 @@ const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const profileId = uuid(1), grinderId = uuid(2), orderId = uuid(3), batchId = uuid(4);
 const product = { id: uuid(5), sku: 'ซองแดง-RB-HK-0060', name: 'กาแฟซองแดง ภาษาไทย ชื่อสินค้ายาวสำหรับตรวจการตัดข้อความและการใช้งาน', size_grams: 500, barcode: '001234567890', unit: 'bag' };
 const grinds = ['6', '8', '10', '12', '15'].map((v, i) => ({ id: uuid(10 + i), grind_value: v, barcode: `990${v.padStart(3, '0')}` }));
-const jobs = [1, 2, 3].map(n => ({ id: uuid(20 + n), order_id: orderId, grind_id: grinds[1].id, queue_seq: n, bag_no: n, status: 'QUEUED', claimed_by: null, grinding_batch_id: null, orders: { order_no: 'HK-TEST-1' }, product_name_snapshot: product.name, sku_snapshot: product.sku, product_barcode_snapshot: product.barcode, size_grams_snapshot: 500, grind_value_snapshot: '8', created_at: new Date().toISOString() }));
+const product2 = { id: uuid(6), sku: 'ซองเขียว-RB-HK-0061', name: 'กาแฟซองเขียว', size_grams: 250, barcode: '001234567891', unit: 'bag' };
+const jobs = [1, 2, 3].map(n => ({ id: uuid(20 + n), order_id: orderId, grind_id: grinds[1].id, queue_seq: n, bag_no: n, status: 'QUEUED', claimed_by: null, grinding_batch_id: null, orders: { order_no: 'HK-TEST-1' }, product_name_snapshot: product.name, sku_snapshot: product.sku, product_barcode_snapshot: product.barcode, size_grams_snapshot: 500, grind_value_snapshot: '8', blend_group_no: 1, blend_group_id: 'g1', process_mode: 'GROUND', created_at: new Date().toISOString() }));
+jobs[2] = { ...jobs[2], product_name_snapshot: product2.name, sku_snapshot: product2.sku, product_barcode_snapshot: product2.barcode, size_grams_snapshot: 250 };
 const output = await mkdtemp(join(tmpdir(), 'grinder-layout-'));
 const bundle = await build({
   stdin: { contents: `import React from 'react';import {createRoot} from 'react-dom/client';
@@ -88,6 +90,7 @@ try {
         if (path === '/api/catalog/options') data = { grinds, grinders: [{ id: grinderId, name: 'ผู้ทดสอบ' }] };
         else if (path === '/api/catalog/search') data = { products: [product] };
         else if (path === `/api/catalog/product/${product.barcode}`) data = { product };
+        else if (path === `/api/catalog/product/${product2.barcode}`) data = { product: product2 };
         else if (path.startsWith('/api/catalog/grind/')) data = { grind: grinds.find(grind => path.endsWith(grind.barcode)) };
         else if (path === '/api/jobs') {
           queries.push(url.search);
@@ -149,7 +152,7 @@ try {
         await page.keyboard.press('F10'); assert.equal(posts.length, 0, 'invalid quantity and modal F10 cannot post');
         await page.keyboard.press('Escape');
         await expect(page.locator('dialog[open]')).toHaveCount(0); await expect(page.locator('#scan')).toBeFocused();
-        await expect(page.locator('.data-table tbody tr')).toHaveCount(0);
+        await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(0);
         await scan(page, '#scan', product.barcode); await scan(page, '#scan', grinds[1].barcode);
         if (station === 'packingmanual') {
           await page.locator('#manual-grinder').selectOption(grinderId);
@@ -157,21 +160,26 @@ try {
           await page.getByRole('button', { name: 'เพิ่มรายการถัดไป', exact: true }).click();
           await expect(page.locator('dialog[open]')).toHaveCount(0);await expect(page.locator('#scan')).toBeFocused();
         } else await confirmQuantity(page, 2, '#scan');
-        await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
+        await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(1);
         if (station === 'counter') {
           await scan(page, '#scan', product.barcode); await page.locator('#grind-select').selectOption(grinds[2].id);
           await modal(page, `${name}-dropdown`); await confirmQuantity(page, 3, '#scan');
-          await expect(page.locator('.data-table tbody tr')).toHaveCount(2);
+          await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(2);
           await page.getByRole('button', { name: 'แก้ไข', exact: true }).first().click();
           await expect(page.locator('#quantity')).toHaveValue('2'); await modal(page, `${name}-edit`);
-          await confirmQuantity(page, 4, '#scan'); await expect(page.locator('.data-table tbody tr')).toHaveCount(2);
-          await expect(page.locator('.data-table tbody tr').first().locator('td').nth(3)).toHaveText('4');
-          await expect(page.locator('.data-table tbody tr').last().locator('td').nth(3)).toHaveText('3');
+          await confirmQuantity(page, 4, '#scan'); await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(2);
+          await expect(page.locator('.data-table tbody tr:not(.group-band)').first().locator('td').nth(3)).toHaveText('4');
+          await expect(page.locator('.data-table tbody tr:not(.group-band)').last().locator('td').nth(3)).toHaveText('3');
+          await scan(page, '#scan', product2.barcode); await scan(page, '#scan', grinds[1].barcode);
+          await confirmQuantity(page, 2, '#scan');
+          await screenshot(page, `${name}-blend`);
+          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(2);
+          await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(1);
           await screenshot(page, `${name}-draft`); assert.equal(posts.length, 0, 'modal Enter must not auto-submit order');
-          await page.getByRole('button', { name: 'ยืนยัน 7 ถุง · F10', exact: true }).click();
-          await expect(page.locator('.data-table tbody tr')).toHaveCount(0);
+          await page.getByRole('button', { name: 'ยืนยัน 9 ถุง · F10', exact: true }).click();
+          await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(0);
           assert.equal(posts.length, 1); assert.equal(posts[0].body.source, 'COUNTER');
-          assert.deepEqual(posts[0].body.lines.map(line => line.quantity), [4, 3]);
+          assert.deepEqual(posts[0].body.lines.map(line => line.quantity), [4, 3, 2]);
           assert.equal(posts[0].body.lines[1].grindId, grinds[2].id); assert.equal(posts[0].body.lines[1].grindBarcode, null);
           assert.deepEqual(await page.evaluate(() => window.__routerPushes), []);
           assert.ok(currentJobs.every(job => job.status === 'QUEUED'));
@@ -195,6 +203,12 @@ try {
         await expect(page).toHaveURL(`${origin}/packing`);
         await page.getByRole('button', { name: 'กลับห้องแพ็ค', exact: true }).click();
         await expect(page.locator('#packing-scan')).toBeFocused();
+        // ชุดผสมต้องรวมเป็นแถวเดียว โชว์ทุก SKU ใช้คิวของถุงแรก และไม่ยัดขนาดเดียวให้ชุดที่คละขนาด
+        await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
+        await expect(page.locator('.data-table tbody .status.flag-blend')).toHaveText('กาแฟผสม 2 SKU');
+        await expect(page.locator('.data-table tbody tr td').first()).toHaveText('#1');
+        await expect(page.locator('.data-table tbody tr td').nth(2)).toHaveText('คละขนาด');
+        await expect(page.locator('.data-table tbody tr').first()).toContainText(product2.sku);
         await page.locator('#packing-scan').fill('ซองแดง');
         const jobResult=page.getByRole('button', { name: new RegExp(product.sku) });
         assert.ok(await jobResult.evaluate(button=>parseFloat(getComputedStyle(button).fontSize)<=15),'search-result font should stay compact');
