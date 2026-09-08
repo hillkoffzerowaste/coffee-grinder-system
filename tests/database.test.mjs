@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
+const CRLF=new RegExp(String.fromCharCode(13)+String.fromCharCode(10),'g');
+const LF=String.fromCharCode(10);
 
 test('order list SQL separates active/history before pagination and reports queued SLA',async()=>{
  const db=new PGlite();
@@ -57,10 +59,11 @@ test('order list SQL separates active/history before pagination and reports queu
 test('database migrations and operational invariants', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  await db.exec(await readFile('database/migrations/001_neon.sql','utf8'));
-  await db.exec(await readFile('database/migrations/002_manual_grinds.sql','utf8'));
-  await db.exec(await readFile('database/migrations/003_thai_catalog.sql','utf8'));
-  await db.exec(await readFile('database/migrations/004_complete_after_grinding.sql','utf8'));
+  // ไล่ทุก migration ให้ตรงกับ production ไม่ใช่หยุดที่ 004 แล้วยืนยัน invariant ของสคีมาที่เลิกใช้แล้ว
+  for (const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes']) {
+    await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(CRLF,LF));
+  }
   await db.exec('set search_path=coffee,pg_catalog');
   assert.equal((await db.query('select * from coffee.grind_size_codes')).rows.length,13);
   assert.equal((await db.query('select * from coffee.grind_size_codes where barcode is null')).rows.length,8);
@@ -89,6 +92,12 @@ test('database migrations and operational invariants', async (t) => {
   }
   async function transition(id, expected, next, grindId = null) {
     return (await db.query('select transition_bag($1,$2,$3,$4,$5) as result',[id,expected,next,grinder,grindId])).rows[0].result;
+  }
+  // ตั้งแต่ 009 การเข้าสถานะ GRINDING ทำได้ทางเดียวคือ start_scan_batch ซึ่งผูกชุดงานให้เสมอ
+  async function startBatch(orderId, quantity = 1, actor = packer) {
+    await as(actor);
+    return (await db.query('select start_scan_batch($1,$2,$3,$4,$5,$6,$7) as result',
+      [randomUUID(),orderId,'001234567890123456789',grind,quantity,grinder,null])).rows[0].result;
   }
   let order, bags;
   await t.test('manual dropdown accepts all 5–17 without barcodes and keeps idempotency',async()=>{
@@ -120,33 +129,35 @@ test('database migrations and operational invariants', async (t) => {
     for (const quantity of [0,100,null]) await assert.rejects(create(randomUUID(),[{...lines[0],quantity}]),/Invalid quantity/);
     await assert.rejects(transition(bags[0].id,'QUEUED','CLAIMED'),/FORBIDDEN/);
   });
-  await t.test('FIFO, stale status, wrong grinder scan and operator ownership', async () => {
-    await as(packer);
-    await assert.rejects(transition(bags[1].id,'QUEUED','CLAIMED'),/earliest/);
-    await transition(bags[0].id,'QUEUED','CLAIMED');
-    await assert.rejects(transition(bags[0].id,'QUEUED','CLAIMED'),/Status changed/);
-    await assert.rejects(transition(bags[0].id,'CLAIMED','GRINDING',randomUUID()),/Grind mismatch/);
+  await t.test('batch start claims the earliest bag, and completion checks status and ownership', async () => {
+    const started = await startBatch(order.id,1);
+    assert.deepEqual(started.bag_ids,[bags[0].id],'start takes the earliest queued bag of the order');
+    await assert.rejects(transition(bags[0].id,'QUEUED','COMPLETED'),/Status changed/);
     await as(other);
-    await assert.rejects(transition(bags[0].id,'CLAIMED','GRINDING',grind),/owned/);
+    await assert.rejects(transition(bags[0].id,'GRINDING','COMPLETED'),/owned/);
     await as(packer);
-    await transition(bags[0].id,'CLAIMED','GRINDING',grind);
     const completed = await transition(bags[0].id,'GRINDING','COMPLETED');
     assert.equal(completed.status,'COMPLETED');
     assert.ok(completed.ground_at);
     assert.ok(completed.completed_at);
   });
+  await t.test('the legacy claim path stays closed and grinding always carries a batch', async () => {
+    await as(packer);
+    await assert.rejects(transition(bags[1].id,'QUEUED','CLAIMED'),/Invalid transition/);
+    await assert.rejects(db.query("update bags set status='GRINDING' where id=$1",[bags[1].id]),/bags_grinding_needs_batch/);
+  });
   await t.test('new lifecycle rejects legacy packaging transitions and completes its order', async () => {
     await as(packer);
     await assert.rejects(transition(bags[1].id,'QUEUED','GROUND'),/Invalid transition/);
-    await transition(bags[1].id,'QUEUED','CLAIMED');
-    await transition(bags[1].id,'CLAIMED','GRINDING',grind);
+    await startBatch(order.id,1);
     await assert.rejects(transition(bags[1].id,'GRINDING','GROUND'),/Invalid transition/);
+    await as(packer);
     await transition(bags[1].id,'GRINDING','COMPLETED');
     assert.equal((await db.query('select status from orders where id=$1',[order.id])).rows[0].status,'COMPLETED');
   });
   await t.test('NULL expected status cannot bypass optimistic concurrency', async () => {
     await as(packer);
-    await assert.rejects(transition(bags[1].id,null,'CLAIMED'),/Status changed/);
+    await assert.rejects(transition(bags[1].id,null,'COMPLETED'),/Status changed/);
   });
   await t.test('admin cancellation closes a new order after its only bag is terminal', async () => {
     await as(counter); const cancelledOrder = await create(randomUUID(),[{...lines[0],quantity:1}]);
