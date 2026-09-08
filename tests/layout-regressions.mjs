@@ -162,6 +162,14 @@ try {
         } else await confirmQuantity(page, 2, '#scan');
         await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(1);
         if (station === 'counter') {
+          // แก้ไขแล้วกดยกเลิก ต้องไม่ทิ้งเบอร์บดของรายการเดิมไว้ให้รายการถัดไปในโหมดบดเดี่ยว
+          await page.getByRole('button', { name: 'แก้ไข', exact: true }).first().click();
+          await expect(page.locator('dialog[open]')).toHaveCount(1);
+          await page.keyboard.press('Escape');
+          await expect(page.locator('dialog[open]')).toHaveCount(0);
+          await scan(page, '#scan', product.barcode);
+          await expect(page.getByRole('heading', { name: '2. เลือกวิธีเตรียมและเบอร์บด' })).toBeVisible();
+          await page.getByRole('button', { name: 'ยกเลิกรายการนี้', exact: true }).click();
           await scan(page, '#scan', product.barcode); await page.locator('#grind-select').selectOption(grinds[2].id);
           await modal(page, `${name}-dropdown`); await confirmQuantity(page, 3, '#scan');
           await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(2);
@@ -233,7 +241,10 @@ try {
         await productAboveScanner(page, '#packing-scan'); await screenshot(page, `${name}-product`);
         await scan(page, '#packing-scan', grinds[1].barcode); await modal(page, name);
         await page.locator('#grinder').selectOption(grinderId);
-        await invalidQuantity(page, '0', 'rangeUnderflow'); await invalidQuantity(page, '4', 'rangeOverflow'); assert.equal(posts.length, 0);
+        await invalidQuantity(page, '0', 'rangeUnderflow');
+        // ชุดผสมมี 3 ถุงก็จริง แต่เป็น SKU ของงานนี้แค่ 2 จำนวนสูงสุดต้องนับเฉพาะ SKU ที่เลือก
+        await invalidQuantity(page, '3', 'rangeOverflow'); assert.equal(posts.length, 0);
+        await expect(page.locator('#quantity')).toHaveAttribute('max', '2');
         await page.keyboard.press('Escape'); await expect(page.locator('dialog[open]')).toHaveCount(0); await expect(page.locator('#packing-scan')).toBeFocused();
         await scan(page, '#packing-scan', grinds[1].barcode); await expect(page.locator('#quantity')).toBeFocused();
         await page.locator('#grinder').selectOption(grinderId); await confirmQuantity(page, 2, '#packing-scan');

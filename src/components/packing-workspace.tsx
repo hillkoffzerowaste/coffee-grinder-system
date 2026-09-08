@@ -23,6 +23,7 @@ type Pending={path:"/api/jobs/start"|"/api/jobs/complete";body:string;descriptio
 type BatchResult={batch:{batch_id:string;bag_ids:string[]}};
 const groupKey=(job:BagJob)=>`${job.order_id}:${job.blend_group_no??job.product_barcode_snapshot}`;
 const orderNo=(job:BagJob)=>job.orders?.order_no??job.order?.order_no??job.order_id;
+const sameWork=(job:BagJob,ref:BagJob)=>groupKey(job)===groupKey(ref)&&job.product_barcode_snapshot===ref.product_barcode_snapshot;
 
 export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile:Profile;initialManual?:boolean;uiConfig?:UiConfig}){
  const [manualOpen,setManualOpen]=useState(initialManual);
@@ -40,7 +41,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
  useQueueAlarm(queuedCount>0,sound.enabled,sound.play);
  const storageKey=`coffee-packing-pending:${profile.id}`;
  const canStart=(job:BagJob)=>job.status==="QUEUED"||(job.status==="CLAIMED"&&(job.claimed_by===profile.id||profile.role==="admin"));
- const available=orderJobs.filter(job=>context&&groupKey(job)===groupKey(context)&&canStart(job)&&(context.process_mode==="WHOLE_BEAN"?job.process_mode==="WHOLE_BEAN":job.grind_id===grind?.id));
+ const available=orderJobs.filter(job=>context&&sameWork(job,context)&&canStart(job)&&(context.process_mode==="WHOLE_BEAN"?job.process_mode==="WHOLE_BEAN":job.grind_id===grind?.id));
  const refocus=()=>setTimeout(()=>{if(!document.querySelector("dialog[open]"))scanRef.current?.focus({preventScroll:true});},0);
  useEffect(()=>{
   let active=true;
@@ -92,11 +93,11 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    if(context&&context.status!=="GRINDING"){
    const latest=await apiFetch<Queue>(`/api/jobs?orderId=${context.order_id}`);setOrderJobs(latest.jobs);
    if(context.process_mode==="WHOLE_BEAN"){
-    if(!latest.jobs.some(j=>groupKey(j)===groupKey(context)&&canStart(j)&&j.process_mode==="WHOLE_BEAN"))throw new Error("ไม่มีถุงเมล็ดรอรับสำหรับชุดนี้แล้ว");
+    if(!latest.jobs.some(j=>sameWork(j,context)&&canStart(j)&&j.process_mode==="WHOLE_BEAN"))throw new Error("ไม่มีถุงเมล็ดรอรับสำหรับชุดนี้แล้ว");
     setWholeBeanReady(true);
    }else{
     const result=await apiFetch<{grind:GrindLookup}>(`/api/catalog/grind/${encodeURIComponent(value)}`);
-    if(!latest.jobs.some(j=>groupKey(j)===groupKey(context)&&canStart(j)&&j.grind_id===result.grind.id))throw new Error("เบอร์บดไม่ตรงกับงานที่ยังรอรับของสินค้านี้");
+    if(!latest.jobs.some(j=>sameWork(j,context)&&canStart(j)&&j.grind_id===result.grind.id))throw new Error("เบอร์บดไม่ตรงกับงานที่ยังรอรับของสินค้านี้");
     setGrind(result.grind);
    }
    }else{
@@ -142,7 +143,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
   const chosen=grinds.find(g=>g.id===id);if(!chosen)return;
   operation.current=true;setBusy(true);setError("");
   try{const latest=await apiFetch<Queue>(`/api/jobs?orderId=${context.order_id}`);setOrderJobs(latest.jobs);
-   if(!latest.jobs.some(j=>groupKey(j)===groupKey(context)&&canStart(j)&&j.grind_id===id))throw new Error("ไม่มีถุงรอรับสำหรับเบอร์นี้แล้ว");
+   if(!latest.jobs.some(j=>sameWork(j,context)&&canStart(j)&&j.grind_id===id))throw new Error("ไม่มีถุงรอรับสำหรับเบอร์นี้แล้ว");
    setGrind({...chosen,barcode:null});
   }catch(e){setError(e instanceof Error?e.message:"เลือกเบอร์บดไม่สำเร็จ");}
   finally{operation.current=false;setBusy(false);refocus();}
@@ -176,8 +177,8 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
   </section>
   <aside className="panel packing-detail"><h2>{batchId?"กำลังบด":"งานที่เลือก"}</h2><div className="detail-content">
    {candidates.length>1&&<><div className="notice">พบหลายชุดงาน กรุณาเลือกออเดอร์ก่อนสแกนเบอร์บด และเลือกชุดให้ถูกต้อง</div>{candidates.map(j=><button key={j.grinding_batch_id??(j.status==="GRINDING"?j.id:groupKey(j))} className="button secondary" disabled={busy||!!pending} onClick={()=>void choose(j)}>{orderNo(j)} · ชุดที่ {j.blend_group_no??"-"} · คิว #{j.queue_seq} · {j.product_name_snapshot} · {jobStatusLabels[j.status]}</button>)}</>}
-   {context&&<><strong>{orderNo(context)} · ชุดที่ {context.blend_group_no??"-"}</strong><span className="band-parts"><BlendBadge skuCount={membersOf(context).length} mode={context.process_mode} /></span><div className="product-name">{context.product_name_snapshot}</div><div>{context.sku_snapshot} · <SizeTag grams={context.size_grams_snapshot} mode={context.process_mode} /></div><div className="notice">{context.process_mode==="WHOLE_BEAN"?"งานเมล็ด — ตรวจสินค้าและระบุจำนวนถุงเพื่อเริ่มงาน":"สแกนเบอร์บด จากนั้นระบุจำนวนถุงเพื่อเข้าสถานะกำลังบด"}</div><div>เบอร์ที่รอรับ: {[...new Set(orderJobs.filter(j=>groupKey(j)===groupKey(context)&&canStart(j)).map(j=>j.grind_value_snapshot).filter(Boolean))].join(", ")||"เมล็ด/ไม่มี"}</div></>}
-   {context&&context.status!=="GRINDING"&&<div className="field"><label htmlFor="packing-grind-select">เลือกเบอร์บดเอง (กรณีไม่มีบาร์โค้ด)</label><select id="packing-grind-select" className="select" value="" disabled={busy||!!pending} onChange={e=>void selectManualGrind(e.target.value)}><option value="">เลือกเบอร์บด</option>{grinds.filter(g=>orderJobs.some(j=>groupKey(j)===groupKey(context)&&canStart(j)&&j.grind_id===g.id)).map(g=><option value={g.id} key={g.id}>เบอร์ {g.grind_value}</option>)}</select></div>}
+   {context&&<><strong>{orderNo(context)} · ชุดที่ {context.blend_group_no??"-"}</strong><span className="band-parts"><BlendBadge skuCount={membersOf(context).length} mode={context.process_mode} /></span><div className="product-name">{context.product_name_snapshot}</div><div>{context.sku_snapshot} · <SizeTag grams={context.size_grams_snapshot} mode={context.process_mode} /></div><div className="notice">{context.process_mode==="WHOLE_BEAN"?"งานเมล็ด — ตรวจสินค้าและระบุจำนวนถุงเพื่อเริ่มงาน":"สแกนเบอร์บด จากนั้นระบุจำนวนถุงเพื่อเข้าสถานะกำลังบด"}</div><div>เบอร์ที่รอรับ: {[...new Set(orderJobs.filter(j=>sameWork(j,context)&&canStart(j)).map(j=>j.grind_value_snapshot).filter(Boolean))].join(", ")||"เมล็ด/ไม่มี"}</div></>}
+   {context&&context.status!=="GRINDING"&&<div className="field"><label htmlFor="packing-grind-select">เลือกเบอร์บดเอง (กรณีไม่มีบาร์โค้ด)</label><select id="packing-grind-select" className="select" value="" disabled={busy||!!pending} onChange={e=>void selectManualGrind(e.target.value)}><option value="">เลือกเบอร์บด</option>{grinds.filter(g=>orderJobs.some(j=>sameWork(j,context)&&canStart(j)&&j.grind_id===g.id)).map(g=><option value={g.id} key={g.id}>เบอร์ {g.grind_value}</option>)}</select></div>}
    {batchId&&<><strong>{batchJobs[0]?orderNo(batchJobs[0]):"กำลังโหลดชุดงาน..."} · ชุดที่ {batchJobs[0]?.blend_group_no??"-"} · {batchJobs.length} ถุง</strong>{batchJobs[0]&&<span className="band-parts"><BlendBadge skuCount={new Set(batchJobs.map(j=>j.sku_snapshot)).size} mode={batchJobs[0].process_mode} /></span>}{batchJobs.map(j=><div className="notice" key={j.id}>{j.product_name_snapshot} · {j.sku_snapshot}<br/><SizeTag grams={j.size_grams_snapshot} mode={j.process_mode} /> · {j.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์ ${j.grind_value_snapshot}`} · {j.grinder_name_snapshot}</div>)}</>}
    {!context&&!batchId&&!candidates.length&&<p>สแกนถุงเพื่อดึงงาน ตรวจชื่อสินค้า แล้วสแกนเบอร์บด</p>}
   </div><div className="detail-actions">

@@ -116,7 +116,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
     try {
       if (!product) {
         const result = await apiFetch<{ product: ProductLookup }>(`/api/catalog/product/${encodeURIComponent(value)}`);
-        setProduct(result.product); setGrind(activeGroup?.grind ?? null); setMode(activeGroup?.mode ?? "GROUND"); setQuantity(1);
+        setProduct(result.product); setGrind(carriedGroup()?.grind ?? null); setMode(carriedGroup()?.mode ?? "GROUND"); setQuantity(1);
         composerRef.current?.scrollTo({ top: 0 });
         composerRef.current?.firstElementChild?.scrollIntoView({ block: "start" });
         const carried = carriedGrind();
@@ -133,11 +133,12 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
   }
 
   // ชุดผสมบังคับเบอร์บดเดียวทั้งชุดอยู่แล้ว การให้สแกนเบอร์ซ้ำทุก SKU จึงเป็นงานเปล่า
-  const carriedGrind = () => orderMode === "BLEND" && activeGroup?.mode === "GROUND" ? activeGroup.grind : null;
+  const carriedGroup = () => orderMode === "BLEND" ? activeGroup : null;
+  const carriedGrind = () => carriedGroup()?.mode === "GROUND" ? carriedGroup()?.grind ?? null : null;
 
   function selectProduct(selected: ProductLookup) {
     if (!ready.current || operation.current || awaitingRetry || recoveryRequired || quantityActive.current) return;
-    setProduct(selected); setGrind(activeGroup?.grind ?? null); setMode(activeGroup?.mode ?? "GROUND"); setQuantity(1); setEditingId(null); setScan(""); setError(""); setMessage("");
+    setProduct(selected); setGrind(carriedGroup()?.grind ?? null); setMode(carriedGroup()?.mode ?? "GROUND"); setQuantity(1); setEditingId(null); setScan(""); setError(""); setMessage("");
     if (scanRef.current) scanRef.current.value = "";
     const carried = carriedGrind();
     if (carried) { openQuantity(carried); return; }

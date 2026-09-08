@@ -156,6 +156,23 @@ test('scan batch migration and RPC contracts', async (t) => {
     assert.equal(started.bag_ids.length,2);
   });
 
+  await t.test('one order carries a ground group and a whole-bean group of the same SKU', async () => {
+    const payload = [
+      {...lines(2)[0], clientLineId:'mix-ground', blendGroupId:'mix-ground', mode:'GROUND'},
+      {...lines(2)[0], clientLineId:'mix-beans', blendGroupId:'mix-beans', mode:'WHOLE_BEAN', grindId:null, grindBarcode:null},
+    ];
+    const result = await create(payload);
+    const created = await bags(result.id);
+    assert.deepEqual(created.map(b=>b.blend_group_no),[1,1,2,2]);
+    assert.deepEqual(created.map(b=>b.process_mode),['GROUND','GROUND','WHOLE_BEAN','WHOLE_BEAN']);
+    assert.ok(created.filter(b=>b.blend_group_no===1).every(b=>b.grind_id===grind&&b.grind_value_snapshot==='6'));
+    assert.ok(created.filter(b=>b.blend_group_no===2).every(b=>b.grind_id===null&&b.grind_value_snapshot===null));
+    // SKU เดียวกันทั้งสองชุด งานเมล็ดจึงต้องไม่ไปคว้าถุงที่ต้องบดซึ่งอยู่คิวต้นกว่า
+    const beans = await start(result.id,{quantity:2,grind:null,blendGroupNo:2});
+    assert.deepEqual(beans.bag_ids, created.filter(b=>b.blend_group_no===2).map(b=>b.id));
+    assert.equal((await bags(result.id)).filter(b=>b.blend_group_no===1&&b.status==='QUEUED').length,2);
+  });
+
   await t.test('invalid quantities, barcode, grind, grinder and excess requests have no effects', async () => {
     const order = await create(lines(2));
     for (const quantity of [null,0,-1,501]) await rejectsUnchanged(() => start(order.id,{quantity}),/Invalid quantity/);
