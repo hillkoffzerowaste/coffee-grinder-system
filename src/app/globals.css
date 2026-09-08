@@ -20,6 +20,7 @@
   --flag-250: #6d28d9;
   --flag-blend: #9a3412;
   --flag-blend-bg: #ffe8d9;
+  --flag-blend-bean: #4a3324;
 }
 
 * { box-sizing: border-box; }
@@ -164,6 +165,9 @@ a { color: inherit; }
 .product-size.flag-250 { color: var(--flag-250); }
 /* ชุดผสมกับกาแฟบดเดี่ยวเดินคนละทางในห้องแพ็ค แถบซ้ายหนาคือสิ่งที่แยกออกจากกันได้จากระยะไกล */
 .status.flag-blend { color: var(--surface); background: var(--flag-blend); border-color: var(--flag-blend); font-weight: 700; }
+.status.flag-blend-bean { color: var(--surface); background: var(--flag-blend-bean); border-color: var(--flag-blend-bean); font-weight: 700; }
+.data-table tr.is-blend-row > td { background: var(--flag-blend-bg); }
+.data-table tr.is-blend-row > td:first-child { border-left: 4px solid var(--flag-blend); }
 .data-table tr.group-band > td { background: var(--surface-subtle); border-left: 4px solid var(--border); font-weight: 700; }
 .data-table tr.group-band.is-blend > td { background: var(--flag-blend-bg); border-left-color: var(--flag-blend); }
 .band-parts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }

@@ -180,9 +180,12 @@ try {
           await scan(page, '#scan', product2.barcode); await scan(page, '#scan', grinds[1].barcode);
           await confirmQuantity(page, 2, '#scan');
           await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(0);
-          await scan(page, '#scan', product.barcode); await scan(page, '#scan', grinds[1].barcode);
-          await confirmQuantity(page, 1, '#scan');
+          // ชุดผสมบดล็อกเบอร์ไว้ทั้งชุดแล้ว SKU ถัดไปต้องเข้าหน้าจำนวนทันทีโดยไม่สแกนเบอร์ซ้ำ
+          await scan(page, '#scan', product.barcode);
+          await expect(page.locator('dialog[open]')).toHaveCount(1);
+          await expect(page.locator('dialog[open]')).toContainText('บดเบอร์ 8');
           await screenshot(page, `${name}-blend`);
+          await confirmQuantity(page, 1, '#scan');
           await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(4);
           await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(1);
           await screenshot(page, `${name}-draft`); assert.equal(posts.length, 0, 'modal Enter must not auto-submit order');
@@ -218,7 +221,7 @@ try {
         await expect(page.locator('#packing-scan')).toBeFocused();
         // ชุดผสมต้องรวมเป็นแถวเดียว โชว์ทุก SKU ใช้คิวของถุงแรก และไม่ยัดขนาดเดียวให้ชุดที่คละขนาด
         await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
-        await expect(page.locator('.data-table tbody .status.flag-blend')).toHaveText('กาแฟผสม 2 SKU');
+        await expect(page.locator('.data-table tbody .status.flag-blend')).toHaveText('กาแฟผสมบด 2 SKU');
         await expect(page.locator('.data-table tbody tr td').first()).toHaveText('#1');
         await expect(page.locator('.data-table tbody tr td').nth(2)).toHaveText('คละขนาด');
         await expect(page.locator('.data-table tbody tr').first()).toContainText(product2.sku);
