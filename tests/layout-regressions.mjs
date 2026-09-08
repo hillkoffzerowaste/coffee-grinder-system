@@ -78,7 +78,7 @@ try {
   for (const size of [{ width: 1366, height: 768 }, { width: 1707, height: 710 }, { width: 1920, height: 1080 }]) {
     for (const station of ['counter', 'packing', 'packingmanual']) {
       const page = await browser.newPage({ viewport: size }); page.setDefaultTimeout(10000);
-      const errors = [], unexpected = [], posts = [], queries = [];
+      const errors = [], unexpected = [], posts = [], queries = [], dailyCalls = [];
       page.on('pageerror', error => errors.push(error.message));
       let currentJobs = jobs.map(job => ({ ...job }));
       await page.route('**/*', async route => {
@@ -88,9 +88,9 @@ try {
         let data;
         if (request.method() === 'POST') posts.push({ path, body: JSON.parse(request.postData()) });
         if (path === '/api/catalog/options') data = { grinds, grinders: [{ id: grinderId, name: 'ผู้ทดสอบ' }] };
-        else if (path === '/api/jobs/daily') data = { daily: { day_start:new Date().toISOString(), bags:5, grams:1500, orders:2,
+        else if (path === '/api/jobs/daily') { dailyCalls.push(url.search); data = { daily: { day_start:new Date().toISOString(), bags:5, grams:1500, orders:2,
           by_grinder:[{name:'กิต',bags:3},{name:'หล้า',bags:2}],
-          orders_list:[{order_no:'HK-D1',bags:3,finished_at:new Date().toISOString()},{order_no:'HK-D2',bags:2,finished_at:new Date().toISOString()}] } };
+          orders_list:[{order_no:'HK-D1',bags:3,finished_at:new Date().toISOString()},{order_no:'HK-D2',bags:2,finished_at:new Date().toISOString()}] } }; }
         else if (path === '/api/catalog/search') data = { products: [product] };
         else if (path === `/api/catalog/product/${product.barcode}`) data = { product };
         else if (path === `/api/catalog/product/${product2.barcode}`) data = { product: product2 };
@@ -199,11 +199,13 @@ try {
           await confirmQuantity(page, 1, '#scan');
           await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(4);
           await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(1);
+          await page.locator('#order-note').fill('  ลูกค้าขอบดหยาบกว่าปกติ  ');
           await screenshot(page, `${name}-draft`); assert.equal(posts.length, 0, 'modal Enter must not auto-submit order');
           await page.getByRole('button', { name: 'ยืนยัน 11 ถุง · F10', exact: true }).click();
           await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(0);
           assert.equal(posts.length, 1); assert.equal(posts[0].body.source, 'COUNTER');
           assert.deepEqual(posts[0].body.lines.map(line => line.quantity), [4, 3, 1, 2, 1]);
+          assert.equal(posts[0].body.note,'ลูกค้าขอบดหยาบกว่าปกติ','note is trimmed before it leaves the counter');
           const groupIds = posts[0].body.lines.map(line => line.blendGroupId);
           assert.equal(new Set(groupIds).size, 4, 'four groups: three single lines plus one blend of two SKUs');
           assert.equal(groupIds[3], groupIds[4], 'the two blend-mode lines share one group');
@@ -211,6 +213,8 @@ try {
           assert.deepEqual(await page.evaluate(() => window.__routerPushes), []);
           assert.ok(currentJobs.every(job => job.status === 'QUEUED'));
         } else {
+          // ห้องแพ็คเปิดออเดอร์ด่วนผ่าน create_grinding_order ซึ่งไม่มีที่เก็บหมายเหตุ
+          await expect(page.locator('#order-note')).toHaveCount(0);
           await scan(page, '#scan', product.barcode);
           await page.getByRole('button', { name: 'เบอร์ 10', exact: true }).click();await modal(page, `${name}-click`);
           await expect(page.locator('#manual-grinder')).toHaveValue(grinderId);
@@ -243,9 +247,13 @@ try {
         await expect(page.locator('.data-table tbody tr td').nth(1).locator('.status.flag-250')).toHaveCount(1);
         // ประวัติวันนี้โหลดตอนกางเท่านั้น ไม่ยิง API ทิ้งไว้ระหว่างสแกน
         const history = page.locator('.daily-history');
-        assert.ok(!queries.some(q => q.includes('daily')), 'daily history must not load before it is opened');
+        assert.equal(dailyCalls.length, 0, 'daily history must not load before it is opened');
         await history.locator('summary').click();
-        await expect(history).toContainText('เสร็จวันนี้ 5 ถุง');
+        await expect(history).toContainText('เสร็จ 5 ถุง');
+        // เลือกวันย้อนหลังได้ และต้องส่ง day ไปกับคำขอ
+        await history.locator('#daily-day').fill('2026-09-01');
+        await expect.poll(() => dailyCalls.at(-1)).toBe('?day=2026-09-01');
+        assert.equal(dailyCalls[0], '', 'the first load asks for the server default day');
         await expect(history).toContainText('1.5 กก.');
         await expect(history).toContainText('กิต 3 ถุง');
         await expect(history.locator('.data-table tbody tr')).toHaveCount(2);

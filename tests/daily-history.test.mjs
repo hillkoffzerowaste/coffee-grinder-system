@@ -23,7 +23,7 @@ async function loadRoute(path, state, db) {
   return exports.GET;
 }
 
-test('packing daily history counts a Bangkok day and stays closed to the counter',async t=>{
+test('packing daily history counts a Bangkok day, accepts a picked day and stays closed to the counter',async t=>{
   const db=new PGlite(); t.after(()=>db.close());
   await db.exec(`create schema coffee;
     create table coffee.orders(id uuid primary key,order_no text);
@@ -45,13 +45,26 @@ test('packing daily history counts a Bangkok day and stays closed to the counter
   // ยังไม่เสร็จ ไม่ว่าเวลาไหนก็ไม่นับ
   await bag(orderB,'GRINDING',250,'มานี',`${bkkMidnight} + interval '6 hours'`);
 
-  const body=await (await daily(new Request('http://localhost/api/jobs/daily'))).json();
+  const call=async q=>(await daily(new Request(`http://localhost/api/jobs/daily${q}`))).json();
+  const body=await call('');
   assert.deepEqual(state.roles,['packer','admin'],'counter role must not reach the packing history');
   assert.equal(body.daily.bags,3);
   assert.equal(body.daily.grams,1000);
   assert.equal(body.daily.orders,2);
   assert.deepEqual(body.daily.by_grinder,[{name:'สมชาย',bags:2},{name:'มานี',bags:1}]);
   assert.deepEqual(body.daily.orders_list.map(o=>[o.order_no,o.bags]),[['HK-B',1],['HK-A',2]]);
+
+  // เลือกวันย้อนหลังต้องมีขอบบนด้วย ไม่งั้นจะกวาดงานของวันถัด ๆ ไปมารวม
+  const today=body.daily.day;
+  const yesterday=new Date(`${today}T00:00:00Z`);yesterday.setUTCDate(yesterday.getUTCDate()-1);
+  const past=await call(`?day=${yesterday.toISOString().slice(0,10)}`);
+  assert.equal(past.daily.day,yesterday.toISOString().slice(0,10));
+  assert.equal(past.daily.bags,1,'only the bag finished just before Bangkok midnight belongs to yesterday');
+  assert.equal(past.daily.grams,250);
+
+  for (const bad of ['2026-13-01','2026-02-30','8/9/2026','today',"2026-09-08' or '1"]) {
+    assert.equal((await daily(new Request(`http://localhost/api/jobs/daily?day=${encodeURIComponent(bad)}`))).status,400,bad);
+  }
 
   state.fail=true;
   const failed=await daily(new Request('http://localhost/api/jobs/daily'));

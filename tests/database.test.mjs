@@ -8,7 +8,7 @@ test('order list SQL separates active/history before pagination and reports queu
  const db=new PGlite();
  try{
   await db.exec(`create schema coffee;
-   create table coffee.orders(id int primary key,order_no text,source text,status text,total_bags int,created_at timestamptz);
+   create table coffee.orders(id int primary key,order_no text,source text,status text,total_bags int,created_at timestamptz,note text);
    create table coffee.bags(order_id int,status text,created_at timestamptz,size_grams_snapshot int,started_at timestamptz,completed_at timestamptz);
    insert into coffee.orders select n,'HK-'||n,'COUNTER',case when n<=55 then 'OPEN' else 'COMPLETED' end,1,now() from generate_series(1,110) n;
    insert into coffee.bags values(55,'QUEUED',now()-interval '2 minutes',250,null,null),(55,'GRINDING',now(),250,now()-interval '90 seconds',null);`);

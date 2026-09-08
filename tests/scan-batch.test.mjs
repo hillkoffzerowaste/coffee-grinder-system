@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -181,6 +181,23 @@ test('scan batch migration and RPC contracts', async (t) => {
     // ถึงจะเขียนตรงเข้าตาราง ก็ยังตั้ง GRINDING โดยไม่มี batch ไม่ได้
     await assert.rejects(query("update coffee.bags set status='GRINDING' where id=$1",[created[0].id]),/bags_grinding_needs_batch/);
     assert.equal((await bags(order.id))[0].status,'CLAIMED');
+  });
+
+  await t.test('counter notes persist per order and both create_order arities stay callable', async () => {
+    const withNote = (note,key=randomUUID()) =>
+      rpc(counter,'select coffee.create_order($1,$2,$3::jsonb,$4) result',[key,'COUNTER',JSON.stringify(lines(1)),note]);
+    const noted = await withNote('  ลูกค้าขอบดหยาบกว่าปกติ  ');
+    assert.equal(noted.note,'ลูกค้าขอบดหยาบกว่าปกติ','note is trimmed on the way in');
+    assert.equal((await withNote('   ')).note,null,'blank note is stored as no note');
+    // เรียกแบบ 3 พารามิเตอร์ต้องไม่กำกวมและยังทำงานได้ เพื่อให้โค้ดรุ่นเก่ารอด deploy
+    const legacy = await rpc(counter,'select coffee.create_order($1,$2,$3::jsonb) result',[randomUUID(),'COUNTER',JSON.stringify(lines(1))]);
+    assert.equal(legacy.note,null);
+    await assert.rejects(withNote('x'.repeat(501)),/Note too long/);
+    // เล่นซ้ำด้วย request id เดิมแต่หมายเหตุต่างต้องถูกปฏิเสธ ไม่ใช่เงียบ ๆ ทับของเดิม
+    const key = randomUUID();
+    const first = await withNote('รอรับหน้าร้าน',key);
+    assert.deepEqual(await withNote('รอรับหน้าร้าน',key),first,'same note replays the stored order');
+    await assert.rejects(withNote('เปลี่ยนใจ',key),/Idempotency payload mismatch/);
   });
 
   await t.test('invalid quantities, barcode, grind, grinder and excess requests have no effects', async () => {

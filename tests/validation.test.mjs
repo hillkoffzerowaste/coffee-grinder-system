@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { orderSchema, loginSchema, transitionSchema, pendingOrderSchema } from '../src/lib/validation.ts';
+import { orderSchema, loginSchema, transitionSchema, pendingOrderSchema, counterNoteOnly } from '../src/lib/validation.ts';
 import {dropdownGrinds} from '../src/lib/grind-options.ts';
 import { canUseStation } from '../src/lib/permissions.ts';
 import { stationLandingPath } from '../src/lib/auth.ts';
@@ -87,4 +87,15 @@ test('a persisted session resumes at its assigned workstation', () => {
   assert.equal(stationLandingPath({station:'counter'}),'/counter');
   assert.equal(stationLandingPath({station:'packing'}),'/packing');
   assert.equal(stationLandingPath({station:'both'}),'/packing');
+});
+
+test('order notes are trimmed, bounded and refused for packing-room orders', () => {
+  assert.equal(orderSchema.safeParse({...order,note:'  ขอบดหยาบ  '}).data.note,'ขอบดหยาบ');
+  assert.equal(orderSchema.safeParse({...order,note:''}).success,false);
+  assert.equal(orderSchema.safeParse({...order,note:'x'.repeat(501)}).success,false);
+  assert.equal(orderSchema.safeParse(order).data.note,undefined);
+  // create_grinding_order ไม่มีที่เก็บหมายเหตุ ปล่อยผ่านแล้วจะหายเงียบ ๆ
+  assert.equal(counterNoteOnly({source:'PACKING_MANUAL',note:'ขอบดหยาบ'}),false);
+  assert.equal(counterNoteOnly({source:'PACKING_MANUAL'}),true);
+  assert.equal(counterNoteOnly({source:'COUNTER',note:'ขอบดหยาบ'}),true);
 });

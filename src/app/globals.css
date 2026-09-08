@@ -172,6 +172,7 @@ a { color: inherit; }
 .data-table tr.group-band.is-blend > td { background: var(--flag-blend-bg); border-left-color: var(--flag-blend); }
 .band-parts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .muted { font-weight: 400; color: var(--muted); }
+.notice.order-note { border-left: 4px solid var(--accent); background: var(--surface-subtle); }
 .daily-history { border: 1px solid var(--border); border-radius: 5px; padding: .5rem .7rem; background: var(--surface); }
 .daily-history > summary { cursor: pointer; font-weight: 700; }
 .daily-history > .stack { margin-top: .6rem; }

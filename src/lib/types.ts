@@ -41,7 +41,7 @@ export interface BagJob {
   grind_id: string | null;
   claimed_by?: string | null;
   grinding_batch_id?: string | null;
-  orders?: { order_no: string } | null;
+  orders?: { order_no: string; note?: string | null } | null;
   bag_no: number;
   queue_seq: number;
   status: JobStatus;

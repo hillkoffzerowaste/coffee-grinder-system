@@ -39,6 +39,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
   const [lines, setLines] = useState<BlendDraftLine[]>([]);
   const [activeGroup, setActiveGroup] = useState<BlendGroupDraft | null>(null);
   const [orderMode, setOrderMode] = useState<"SINGLE" | "BLEND">("SINGLE");
+  const [note, setNote] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const {grinds,grinders,catalogError,reloadCatalog}=useCatalog();
   const sound=useSounds();
@@ -72,6 +73,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
           if (parsed.source !== source) throw new Error("Wrong station draft");
           retryBody.current = pending.body; requestId.current = parsed.clientRequestId;
           setGrinderUserId(typeof storedBody.grinderUserId === "string" ? storedBody.grinderUserId : "");
+          setNote(typeof storedBody.note === "string" ? storedBody.note : "");
           setLines(pending.lines.map((line) => ({...line, blendGroupId: line.blendGroupId ?? line.clientLineId, mode: line.mode ?? "GROUND"})));
           setAwaitingRetry(true);
           setError("พบออเดอร์รอยืนยันผล กรุณากดยืนยันอีกครั้งเพื่อรับผลบันทึกเดิม");
@@ -186,7 +188,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
     operation.current = true;
     setBusy(true); setError("");
     requestId.current ||= crypto.randomUUID();
-    retryBody.current ||= JSON.stringify({ clientRequestId: requestId.current, source, ...(source === "PACKING_MANUAL" ? { grinderUserId } : {}), lines: snapshot.map((line) => ({ clientLineId: line.clientLineId, productId: line.product.id, productBarcode: line.product.barcode, blendGroupId: line.blendGroupId, mode: line.mode, grindId: line.grind?.id ?? null, grindBarcode: line.grind?.barcode ?? null, quantity: line.quantity })) });
+    retryBody.current ||= JSON.stringify({ clientRequestId: requestId.current, source, ...(source === "PACKING_MANUAL" ? { grinderUserId } : {}), ...(source === "COUNTER" && note.trim() ? { note: note.trim() } : {}), lines: snapshot.map((line) => ({ clientLineId: line.clientLineId, productId: line.product.id, productBarcode: line.product.barcode, blendGroupId: line.blendGroupId, mode: line.mode, grindId: line.grind?.id ?? null, grindBarcode: line.grind?.barcode ?? null, quantity: line.quantity })) });
     let completedBatch: string | null = null;
     try {
       // Persist before the request so a reload cannot generate a duplicate order.
@@ -199,7 +201,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
       sessionStorage.removeItem(storageKey);
       play("success");
       setMessage(`บันทึก ${result.order.order_no} สำเร็จ · ${result.order.total_bags} ถุง`);
-      setLines([]); requestId.current = null; retryBody.current = null; setAwaitingRetry(false); setMonitorRevision(value=>value+1);
+      setLines([]); setNote(""); requestId.current = null; retryBody.current = null; setAwaitingRetry(false); setMonitorRevision(value=>value+1);
       if (source === "PACKING_MANUAL" && result.order.batch_id) {
         completedBatch = result.order.batch_id;
       }
@@ -217,7 +219,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
       if (onCompleted) onCompleted(completedBatch);
       else router.push('/packing?batch=' + encodeURIComponent(completedBatch));
     }
-  }, [source, storageKey, play, grinderUserId, recoveryRequired, router, onCompleted]);
+  }, [source, storageKey, play, grinderUserId, note, recoveryRequired, router, onCompleted]);
 
   const confirmOrder = useCallback(async () => {
     if (product || quantityActive.current || document.querySelector("dialog[open]")) return;
@@ -264,6 +266,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
           </div>
         </>}
         <div className="data-table-wrap"><table className="data-table"><thead><tr><th>สินค้า</th><th>ขนาด</th><th>วิธีเตรียม</th><th>ถุง</th><th>จัดการ</th></tr></thead><tbody>{groupsFor(lines).map((group, groupIndex) => { const skuCount = new Set(group.lines.map((item) => item.product.sku)).size; return <Fragment key={group.groupId}><tr className={`group-band${skuCount > 1 ? " is-blend" : ""}`}><td colSpan={5}><span className="band-parts">ชุดที่ {groupIndex + 1}<BlendBadge skuCount={skuCount} mode={group.mode} /><span className="muted">{group.mode === "WHOLE_BEAN" ? "เมล็ด" : `บดเบอร์ ${group.grind?.grind_value}`} · รวม {group.total} ถุง</span></span></td></tr>{group.lines.map((line) => <tr key={line.clientLineId}><td>{line.product.name}<br /><small>{line.product.sku}</small></td><td><SizeTag grams={line.product.size_grams} mode={line.mode} /></td><td>{line.mode === "WHOLE_BEAN" ? "เมล็ด" : `บดเบอร์ ${line.grind?.grind_value}`}</td><td>{line.quantity}</td><td><button className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => { if (operation.current || awaitingRetry || recoveryRequired || quantityActive.current) return; setProduct(line.product); setMode(line.mode ?? "GROUND"); setGrind(line.grind); setActiveGroup({id:line.blendGroupId ?? line.clientLineId,mode:line.mode ?? "GROUND",grind:line.grind}); setEditingId(line.clientLineId); if (line.mode === "WHOLE_BEAN") { quantityActive.current=true; setQuantityOpen(true); } else if (line.grind) openQuantity(line.grind, line.quantity); }}>แก้ไข</button> <button className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => { if (operation.current || awaitingRetry || recoveryRequired || quantityActive.current) return; setLines((current) => current.filter((item) => item.clientLineId !== line.clientLineId)); requestId.current = null; }}>ลบ</button></td></tr>)}</Fragment>; })}</tbody></table>{!lines.length && <div className="empty">ยังไม่มีรายการ</div>}</div>
+        {source === "COUNTER" && <div className="field"><label htmlFor="order-note">หมายเหตุออเดอร์ (ไม่บังคับ)</label><textarea id="order-note" className="input" rows={2} maxLength={500} value={note} disabled={busy || awaitingRetry || recoveryRequired} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ลูกค้าขอบดหยาบกว่าปกติ / รอรับหน้าร้าน" /><small>{note.trim().length}/500 · ห้องแพ็คจะเห็นหมายเหตุนี้</small></div>}
         {source === "PACKING_MANUAL" && <div className="field"><label htmlFor="grinder-select">ผู้รับผิดชอบงาน</label><select id="grinder-select" className="select" required value={grinderUserId} disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onChange={(event) => setGrinderUserId(event.target.value)}><option value="">เลือกผู้แพ็ค/ผู้บดก่อนยืนยัน</option>{grinderUserId && !grinders.some(item => item.id === grinderUserId) && <option value={grinderUserId}>ผู้รับผิดชอบที่บันทึกไว้ ({grinderUserId})</option>}{grinders.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
         </div><div className="sticky-actions"><strong>รวม {total} ถุง</strong><button type="button" className="button secondary" onClick={()=>composerRef.current?.querySelector(product?".product-result":".data-table-wrap")?.scrollIntoView({block:"start"})}>ดู{product?"รายละเอียด":"รายการ"} ↓</button><button type="button" className="button large" disabled={!lines.length || busy || !!product || quantityOpen || recoveryRequired || (source === "PACKING_MANUAL" && !grinderUserId)} onClick={() => void confirmOrder()}>{busy ? "กำลังบันทึก..." : `ยืนยัน ${total} ถุง · F10`}</button></div>
       </section>

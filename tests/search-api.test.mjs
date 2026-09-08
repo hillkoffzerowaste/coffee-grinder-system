@@ -29,7 +29,7 @@ test('catalog and jobs search routes',async t=>{
   await db.exec(`create schema coffee;
     create table coffee.products(id uuid primary key,sku text,name text,size_grams int,unit text,active boolean);
     create table coffee.product_barcodes(product_id uuid,barcode text,active boolean);
-    create table coffee.orders(id uuid primary key,order_no text);
+    create table coffee.orders(id uuid primary key,order_no text,note text);
     create table coffee.bags(id uuid primary key,order_id uuid,grind_id uuid,claimed_by uuid,grinding_batch_id uuid,blend_group_id text,blend_group_no int,process_mode text,
       bag_no int,queue_seq bigint,status text,product_name_snapshot text,sku_snapshot text,size_grams_snapshot int,
       grind_value_snapshot text,product_barcode_snapshot text,grinder_name_snapshot text,created_at timestamptz);`);
@@ -49,7 +49,7 @@ test('catalog and jobs search routes',async t=>{
   await product('Hidden French','DISABLED-BARCODE',true,[['001235',false]]);
   const literal=await product('100%_Coffee','LITERAL');
   const order=randomUUID(),batch=randomUUID(),first=randomUUID();
-  await db.query('insert into coffee.orders values($1,\'HK-SEARCH-0001\')',[order]);
+  await db.query('insert into coffee.orders values($1,\'HK-SEARCH-0001\',\'ลูกค้าขอบดหยาบ\')',[order]);
   for(const [id,seq,status] of [[first,1,'QUEUED'],[randomUUID(),2,'GRINDING'],[randomUUID(),3,'COMPLETED']]){
     await db.query(`insert into coffee.bags(id,order_id,grinding_batch_id,queue_seq,status,product_name_snapshot,sku_snapshot,product_barcode_snapshot)
       values($1,$2,$3,$4,$5,'กาแฟ French Roast','RB-HK-THAI','001234')`,[id,order,batch,seq,status]);
@@ -107,6 +107,7 @@ test('catalog and jobs search routes',async t=>{
     for(const scan of ['001234','1',first]){
       const result=await (await jobs(request({scan}))).json();
       assert.ok(result.jobs.some(j=>j.id===first));
+      assert.equal(result.jobs.find(j=>j.id===first).orders.note,'ลูกค้าขอบดหยาบ','packing queue carries the counter note');
     }
     assert.equal((await (await jobs(request({search:'French',scan:'1',orderId:order,batch}))).json()).jobs.length,1);
     assert.deepEqual((await (await jobs(request({search:'French',scan:'9999'}))).json()).jobs,[]);

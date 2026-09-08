@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/auth";
 import { readRows, databaseError } from "@/lib/db";
-import {orderSchema} from "@/lib/validation";
+import {orderSchema,counterNoteOnly} from "@/lib/validation";
 export async function GET(request:Request) {
  const auth=await requireApiUser();if(auth.error)return auth.error;
  const params=new URL(request.url).searchParams;
  const view=params.get("view")??"active",page=Number(params.get("page")??0);
  if(!["active","history"].includes(view)||!Number.isSafeInteger(page)||page<0||page>100000)return NextResponse.json({error:"ตัวกรองไม่ถูกต้อง"},{status:400});
- try{const rows=await readRows(auth.profile.id,`select o.id,o.order_no,o.source,o.status,o.total_bags,o.created_at,
+ try{const rows=await readRows(auth.profile.id,`select o.id,o.order_no,o.source,o.status,o.total_bags,o.created_at,o.note,
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status='QUEUED') as queued_count,
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status in ('CLAIMED','GRINDING')) as active_count,
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status='COMPLETED') as completed_count,
@@ -27,8 +27,9 @@ export async function POST(request:Request) {
  const parsed=orderSchema.safeParse(await request.json().catch(()=>null));
  if(!parsed.success)return NextResponse.json({error:"ข้อมูลออเดอร์ไม่ถูกต้อง"},{status:400});
  if(parsed.data.source==="PACKING_MANUAL"&&!parsed.data.grinderUserId)return NextResponse.json({error:"เลือกคนบดก่อนยืนยันออเดอร์"},{status:400});
+ if(!counterNoteOnly(parsed.data))return NextResponse.json({error:"หมายเหตุใช้ได้เฉพาะออเดอร์หน้าร้าน"},{status:400});
  try{const [row]=parsed.data.source==="PACKING_MANUAL"
   ?await readRows(auth.profile.id,"select coffee.create_grinding_order($1,$2::jsonb,$3) as result",[parsed.data.clientRequestId,JSON.stringify(parsed.data.lines),parsed.data.grinderUserId])
-  :await readRows(auth.profile.id,"select coffee.create_order($1,$2,$3::jsonb) as result",[parsed.data.clientRequestId,parsed.data.source,JSON.stringify(parsed.data.lines)]);
+  :await readRows(auth.profile.id,"select coffee.create_order($1,$2,$3::jsonb,$4) as result",[parsed.data.clientRequestId,parsed.data.source,JSON.stringify(parsed.data.lines),parsed.data.note??null]);
  return NextResponse.json({order:row.result},{status:201});} catch(error) { const e=databaseError(error); return NextResponse.json({error:e.message},{status:e.status}); }
 }

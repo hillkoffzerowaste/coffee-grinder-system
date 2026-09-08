@@ -10,6 +10,7 @@ export const orderSchema = z.object({
   clientRequestId: z.uuid(),
   source: z.enum(["COUNTER", "PACKING_MANUAL"]),
   grinderUserId: z.uuid().optional(),
+  note: z.string().trim().min(1).max(500).optional(),
   lines: z.array(z.object({
     clientLineId: z.string().min(1).max(100),
     productId: z.uuid(),
@@ -65,6 +66,9 @@ export const transitionSchema = z.object({
     && transition.expectedStatus !== transition.nextStatus;
   if (!normal && !adminOnly) ctx.addIssue({code:"custom",message:"Invalid transition"});
 });
+
+// create_grinding_order ไม่มีที่เก็บหมายเหตุ ถ้าปล่อยผ่านจะหายเงียบ ๆ
+export const counterNoteOnly = (order: { source: string; note?: string }) => order.source === "COUNTER" || order.note === undefined;
 
 export const pendingOrderSchema = z.object({
   body: z.string(),
