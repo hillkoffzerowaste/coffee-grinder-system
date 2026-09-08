@@ -155,8 +155,9 @@ a { color: inherit; }
 .barcode-drawer figure[role="button"][aria-disabled="false"] { cursor: pointer; }
 .barcode-drawer figure[role="button"][aria-disabled="false"]:hover { border-color: var(--brand-strong); }
 .barcode-drawer > .stack { gap: .35rem; }
-.monitor-tabs { display: flex; gap: .4rem; flex-shrink: 0; }
-.monitor-tabs [aria-pressed="true"] { background: var(--brand-strong); color: white; }
+.monitor-tabs, .mode-tabs { display: flex; gap: .4rem; flex-shrink: 0; }
+.monitor-tabs [aria-pressed="true"], .mode-tabs [aria-pressed="true"] { background: var(--brand-strong); color: var(--surface); }
+.mode-tabs [aria-pressed="true"].is-blend { background: var(--flag-blend); border-color: var(--flag-blend); }
 .status.info { color: #154b85; background: #eaf3ff; }
 /* 250 g บดคือขนาดที่หยิบสลับกับ 200/500 g บ่อยที่สุด ม่วงจึงเป็นสีเดียวที่ไม่ชนกับสถานะใด */
 .status.flag-250 { color: var(--surface); background: var(--flag-250); border-color: var(--flag-250); font-weight: 700; }

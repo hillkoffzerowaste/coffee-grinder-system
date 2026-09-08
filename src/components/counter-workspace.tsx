@@ -38,6 +38,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [lines, setLines] = useState<BlendDraftLine[]>([]);
   const [activeGroup, setActiveGroup] = useState<BlendGroupDraft | null>(null);
+  const [orderMode, setOrderMode] = useState<"SINGLE" | "BLEND">("SINGLE");
   const [editingId, setEditingId] = useState<string | null>(null);
   const {grinds,grinders,catalogError,reloadCatalog}=useCatalog();
   const sound=useSounds();
@@ -153,15 +154,16 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
     if (remaining.length >= 100 || remaining.reduce((sum, line) => sum + line.quantity, quantity) > 500) {
       setQuantityError("หนึ่งออเดอร์รองรับไม่เกิน 100 รายการ และ 500 ถุง"); return;
     }
-    let group = activeGroup ?? { id: crypto.randomUUID(), mode, grind: mode === "GROUND" ? grind : null };
+    const carryGroup = editingId || orderMode === "BLEND" ? activeGroup : null;
+    let group = carryGroup ?? { id: crypto.randomUUID(), mode, grind: mode === "GROUND" ? grind : null };
     if (!canJoinBlendGroup(group, mode, mode === "GROUND" ? grind : null)) {
       group = { id: crypto.randomUUID(), mode, grind: mode === "GROUND" ? grind : null };
       setMessage("เบอร์บด/สถานะต่างกัน ระบบสร้างชุดใหม่ให้แล้ว");
     }
     const line = productLine(product, group.id, mode, mode === "GROUND" ? grind : null, quantity, editingId || crypto.randomUUID());
     const nextLines = editingId ? lines.map((item) => item.clientLineId === editingId ? line : item) : mergeBlendLine(lines, line);
-    if (!activeGroup) setActiveGroup(group);
-    if (!groupsFor(nextLines).some((item) => item.groupId === group.id)) setActiveGroup(group);
+    if (orderMode === "BLEND") setActiveGroup(group);
+    else setActiveGroup(null);
     setLines(nextLines);
     requestId.current = null;
     resetCurrent();
@@ -224,6 +226,10 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
       <section className="panel counter-composer"><div ref={composerRef} className="composer-content stack">
         <div className="composer-heading"><SoundControls sound={sound} onReady={()=>scanRef.current?.focus({preventScroll:true})} />
         <h2>{!product ? "1. สแกนบาร์โค้ดสินค้า" : mode === "GROUND" && !grind ? "2. เลือกวิธีเตรียมและเบอร์บด" : "3. เลือกจำนวน"}</h2>
+          <div className="mode-tabs" aria-label="โหมดรับออเดอร์">
+            <button type="button" className="button secondary" aria-pressed={orderMode === "SINGLE"} disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => { if (orderMode === "SINGLE") return; setOrderMode("SINGLE"); setActiveGroup(null); setMessage("โหมดกาแฟบดเดี่ยว — แต่ละ SKU แยกชุดของตัวเอง"); }}>กาแฟบดเดี่ยว</button>
+            <button type="button" className="button secondary is-blend" aria-pressed={orderMode === "BLEND"} disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => { if (orderMode === "BLEND") return; setOrderMode("BLEND"); setActiveGroup(null); setMessage("โหมดกาแฟผสม — SKU ที่สแกนถัดไปจะรวมอยู่ชุดเดียวกัน"); }}>กาแฟผสม</button>
+          </div>
         {onCancel && <button type="button" className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={cancelWorkspace}>กลับห้องแพ็ค</button>}
         </div>
         {product && <div className="product-result" role="status"><div><div className="product-name">{product.name}</div><div>{product.sku} · {product.barcode}</div></div>{isGround250(product.size_grams, mode) ? <SizeTag grams={product.size_grams} mode={mode} big /> : <div className="product-size">{product.size_grams} g</div>}</div>}
@@ -235,10 +241,10 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
         {product && <div className="row" aria-label="วิธีเตรียมรายการ">
           <button type="button" className={`button ${mode === "GROUND" ? "" : "secondary"}`} disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => { setMode("GROUND"); setGrind(null); setQuantityError(""); }}>บดกาแฟ</button>
           <button type="button" className={`button ${mode === "WHOLE_BEAN" ? "" : "secondary"}`} disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => { setMode("WHOLE_BEAN"); setGrind(null); setQuantityError(""); openQuantity(null); }}>เมล็ด</button>
-          {mode === "WHOLE_BEAN" && <button type="button" className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => openQuantity(null)}>เพิ่มเข้า{activeGroup ? "ชุดนี้" : "ชุด"}</button>}
-          {activeGroup && <><span className="status info">ชุดที่ {groupsFor(lines).findIndex(group => group.groupId === activeGroup.id) + 1}</span><button type="button" className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={beginNewGroup}>สร้างชุดใหม่</button></>}
+          {mode === "WHOLE_BEAN" && <button type="button" className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={() => openQuantity(null)}>เพิ่มเข้า{orderMode === "BLEND" && activeGroup ? "ชุดนี้" : "ชุด"}</button>}
+          {orderMode === "BLEND" && activeGroup && <><span className="status info">ชุดที่ {groupsFor(lines).findIndex(group => group.groupId === activeGroup.id) + 1}</span><button type="button" className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={beginNewGroup}>สร้างชุดใหม่</button></>}
         </div>}
-        {activeGroup && !product && <div className="row" aria-label="ชุดปัจจุบัน"><span className="status info">รายการถัดไปเข้าชุดที่ {groupsFor(lines).findIndex(group => group.groupId === activeGroup.id) + 1} · {activeGroup.mode === "WHOLE_BEAN" ? "เมล็ด" : `บดเบอร์ ${activeGroup.grind?.grind_value}`}</span><button type="button" className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={beginNewGroup}>สร้างชุดใหม่</button></div>}
+        {orderMode === "BLEND" && activeGroup && !product && <div className="row" aria-label="ชุดปัจจุบัน"><span className="status info">รายการถัดไปเข้าชุดที่ {groupsFor(lines).findIndex(group => group.groupId === activeGroup.id) + 1} · {activeGroup.mode === "WHOLE_BEAN" ? "เมล็ด" : `บดเบอร์ ${activeGroup.grind?.grind_value}`}</span><button type="button" className="button secondary" disabled={busy || awaitingRetry || quantityOpen || recoveryRequired} onClick={beginNewGroup}>สร้างชุดใหม่</button></div>}
         {mode === "GROUND" && <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} onSelect={selected => { if (product) openQuantity(selected); }} disabled={!product || busy || awaitingRetry || quantityOpen || recoveryRequired} /></section>}
         {error && <div role="alert" className="notice error">{error}</div>}
         {message && <div role="status" className="notice success">{message}</div>}

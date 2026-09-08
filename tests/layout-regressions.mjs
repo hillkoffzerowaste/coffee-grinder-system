@@ -169,17 +169,30 @@ try {
           await expect(page.locator('#quantity')).toHaveValue('2'); await modal(page, `${name}-edit`);
           await confirmQuantity(page, 4, '#scan'); await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(2);
           await expect(page.locator('.data-table tbody tr:not(.group-band)').first().locator('td').nth(3)).toHaveText('4');
-          await expect(page.locator('.data-table tbody tr:not(.group-band)').last().locator('td').nth(3)).toHaveText('3');
+          await expect(page.locator('.data-table tbody tr:not(.group-band)').nth(1).locator('td').nth(3)).toHaveText('3');
+          // โหมดกาแฟบดเดี่ยว: คนละ SKU เบอร์บดเดียวกัน ต้องไม่ไหลไปรวมชุดเดียวกันเอง
+          await scan(page, '#scan', product2.barcode); await scan(page, '#scan', grinds[1].barcode);
+          await confirmQuantity(page, 1, '#scan');
+          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(3);
+          await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(0);
+          // สลับมาโหมดกาแฟผสม แล้วสอง SKU ถึงจะรวมเป็นชุดเดียว
+          await page.getByRole('button', { name: 'กาแฟผสม', exact: true }).click();
           await scan(page, '#scan', product2.barcode); await scan(page, '#scan', grinds[1].barcode);
           await confirmQuantity(page, 2, '#scan');
+          await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(0);
+          await scan(page, '#scan', product.barcode); await scan(page, '#scan', grinds[1].barcode);
+          await confirmQuantity(page, 1, '#scan');
           await screenshot(page, `${name}-blend`);
-          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(2);
+          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(4);
           await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(1);
           await screenshot(page, `${name}-draft`); assert.equal(posts.length, 0, 'modal Enter must not auto-submit order');
-          await page.getByRole('button', { name: 'ยืนยัน 9 ถุง · F10', exact: true }).click();
+          await page.getByRole('button', { name: 'ยืนยัน 11 ถุง · F10', exact: true }).click();
           await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(0);
           assert.equal(posts.length, 1); assert.equal(posts[0].body.source, 'COUNTER');
-          assert.deepEqual(posts[0].body.lines.map(line => line.quantity), [4, 3, 2]);
+          assert.deepEqual(posts[0].body.lines.map(line => line.quantity), [4, 3, 1, 2, 1]);
+          const groupIds = posts[0].body.lines.map(line => line.blendGroupId);
+          assert.equal(new Set(groupIds).size, 4, 'four groups: three single lines plus one blend of two SKUs');
+          assert.equal(groupIds[3], groupIds[4], 'the two blend-mode lines share one group');
           assert.equal(posts[0].body.lines[1].grindId, grinds[2].id); assert.equal(posts[0].body.lines[1].grindBarcode, null);
           assert.deepEqual(await page.evaluate(() => window.__routerPushes), []);
           assert.ok(currentJobs.every(job => job.status === 'QUEUED'));

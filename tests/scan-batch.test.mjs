@@ -125,6 +125,29 @@ test('scan batch migration and RPC contracts', async (t) => {
     assert.equal((await bags(result.id)).filter(b=>b.status==='QUEUED' && b.blend_group_no===1).length,2);
     assert.equal(groupOne.length,2);
   });
+  await t.test('one order carries a blend group and a plain ground group without leaking between them', async () => {
+    const productC = (await query("insert into coffee.products(sku,name,size_grams) values ('BATCH-TEST-C','Batch beans C',250) returning id"))[0].id;
+    const barcodeC = '009876543210987654322';
+    await query('insert into coffee.product_barcodes(product_id,barcode) values ($1,$2)', [productC, barcodeC]);
+    const payload = [
+      {...lines(2)[0], clientLineId:'mix-blend-a', blendGroupId:'mix-blend', mode:'GROUND'},
+      {clientLineId:'mix-blend-c', productId:productC, productBarcode:barcodeC, grindId:grind, grindBarcode:'990006', blendGroupId:'mix-blend', mode:'GROUND', quantity:1},
+      {...lines(2)[0], clientLineId:'mix-single', blendGroupId:'mix-single', mode:'GROUND'},
+    ];
+    const result = await create(payload);
+    const created = await bags(result.id);
+    assert.deepEqual(created.map(b=>b.blend_group_no),[1,1,1,2,2]);
+    assert.equal((await query('select count(*)::int as count from coffee.order_items where order_id=$1',[result.id]))[0].count,3);
+    // SKU และเบอร์บดเดียวกันอยู่ทั้งสองชุด เริ่มที่ชุดหลังทั้งที่ชุดแรกยังค้างอยู่
+    // ถ้า blend_group_no ไม่ถูกใช้กรอง ถุงคิวต้น ๆ ของชุด 1 จะโดนดึงไปแทน
+    const singleStart = await start(result.id,{quantity:2,blendGroupNo:2});
+    assert.deepEqual(singleStart.bag_ids, created.filter(b=>b.blend_group_no===2).map(b=>b.id));
+    assert.equal((await bags(result.id)).filter(b=>b.blend_group_no===1 && b.status==='QUEUED').length,3);
+    const blendStart = await start(result.id,{quantity:2,blendGroupNo:1});
+    assert.deepEqual(blendStart.bag_ids, created.filter(b=>b.blend_group_no===1 && b.product_barcode_snapshot===barcode).map(b=>b.id));
+    // ถุงอีก SKU ของชุดผสมยังไม่ถูกดึงไปด้วย เพราะคนละบาร์โค้ด
+    assert.equal((await bags(result.id)).filter(b=>b.status==='QUEUED').map(b=>b.product_barcode_snapshot).join(),barcodeC);
+  });
   await t.test('whole-bean groups persist without a grind and can be started as a packing batch', async () => {
     const payload=[{...lines(2)[0],clientLineId:'beans',blendGroupId:'whole',mode:'WHOLE_BEAN',grindId:null,grindBarcode:null}];
     const result=await create(payload); const created=await bags(result.id);
