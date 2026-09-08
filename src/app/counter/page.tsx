@@ -9,5 +9,5 @@ export default async function CounterPage() {
   const profile = await currentProfile();
   if (!profile) redirect("/login");
   if (!canUseStation(profile, "counter")) redirect("/login");
-  return <CounterWorkspace profile={profile} uiConfig={await publishedUiConfig(profile.id)} />;
+  return <CounterWorkspace profile={profile} uiConfig={await publishedUiConfig()} />;
 }

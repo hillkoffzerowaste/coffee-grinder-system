@@ -29,14 +29,16 @@ export interface GrindLookup {
 export interface DraftLine {
   clientLineId: string;
   product: ProductLookup;
-  grind: GrindLookup;
+  grind: GrindLookup | null;
   quantity: number;
+  blendGroupId?: string;
+  mode?: "GROUND" | "WHOLE_BEAN";
 }
 
 export interface BagJob {
   id: string;
   order_id: string;
-  grind_id: string;
+  grind_id: string | null;
   claimed_by?: string | null;
   grinding_batch_id?: string | null;
   orders?: { order_no: string } | null;
@@ -46,7 +48,10 @@ export interface BagJob {
   product_name_snapshot: string;
   sku_snapshot: string;
   size_grams_snapshot: number;
-  grind_value_snapshot: string;
+  grind_value_snapshot: string | null;
+  blend_group_no?: number;
+  blend_group_id?: string | null;
+  process_mode?: "GROUND" | "WHOLE_BEAN";
   product_barcode_snapshot: string;
   grinder_name_snapshot?: string | null;
   created_at: string;

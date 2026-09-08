@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -38,12 +38,13 @@ test('scan batch migration and RPC contracts', async (t) => {
   const create = (payload = lines(), actor = counter, key = randomUUID(), source = 'COUNTER') =>
     rpc(actor,'select coffee.create_order($1,$2,$3::jsonb) result',[key,source,JSON.stringify(payload)]);
   const start = (orderId, options = {}) => rpc(options.actor ?? packer,
-    'select coffee.start_scan_batch($1,$2,$3,$4,$5,$6) result',[
+    'select coffee.start_scan_batch($1,$2,$3,$4,$5,$6,$7) result',[
       options.key === undefined ? randomUUID() : options.key,orderId,
       options.barcode === undefined ? barcode : options.barcode,
       options.grind === undefined ? grind : options.grind,
       options.quantity === undefined ? 2 : options.quantity,
       options.grinder === undefined ? grinder : options.grinder,
+      options.blendGroupNo === undefined ? null : options.blendGroupNo,
     ]);
   const manual = (payload = lines(), options = {}) => rpc(options.actor ?? packer,
     'select coffee.create_grinding_order($1,$2::jsonb,$3) result',[
@@ -92,6 +93,44 @@ test('scan batch migration and RPC contracts', async (t) => {
     assert.equal((await query("select * from coffee.outbox_events where payload->>'batch_id'=$1",[result.batch_id])).length,2);
     assert.equal((await query("select * from coffee.audit_log where details->>'batch_id'=$1",[result.batch_id])).length,1);
     assert.equal((await query('select * from coffee.print_jobs where bag_id=any($1::uuid[])',[before.map(b => b.id)])).length,4);
+  });
+
+  await t.test('one order keeps multiple SKUs in one blend group with separate bag jobs', async () => {
+    const productB = (await query("insert into coffee.products(sku,name,size_grams) values ('BATCH-TEST-B','Batch beans B',250) returning id"))[0].id;
+    const barcodeB = '009876543210987654321';
+    await query('insert into coffee.product_barcodes(product_id,barcode) values ($1,$2)', [productB, barcodeB]);
+    const payload = [
+      {...lines(2)[0], clientLineId:'blend-a', blendGroupId:'blend-1', mode:'GROUND'},
+      {clientLineId:'blend-b', productId:productB, productBarcode:barcodeB, grindId:grind, grindBarcode:'990006', blendGroupId:'blend-1', mode:'GROUND', quantity:3},
+    ];
+    const result = await create(payload);
+    const created = await bags(result.id);
+    assert.equal(created.length,5);
+    assert.deepEqual(created.map(b=>b.blend_group_no),[1,1,1,1,1]);
+    assert.deepEqual(created.map(b=>b.product_barcode_snapshot),[barcode,barcode,barcodeB,barcodeB,barcodeB]);
+    assert.ok(created.every(b=>b.process_mode==='GROUND' && b.grind_value_snapshot==='6'));
+    assert.equal((await query('select count(*)::int as count from coffee.order_items where order_id=$1',[result.id]))[0].count,2);
+  });
+  await t.test('scan start never combines identical SKU lines from different blend groups', async () => {
+    const payload = [
+      {...lines(2)[0], clientLineId:'same-a', blendGroupId:'group-a', mode:'GROUND'},
+      {...lines(3)[0], clientLineId:'same-b', blendGroupId:'group-b', mode:'GROUND'},
+    ];
+    const result = await create(payload);
+    const created = await bags(result.id);
+    const groupOne = created.filter(b=>b.blend_group_no===1);
+    const started = await start(result.id,{quantity:1,blendGroupNo:2});
+    assert.deepEqual(started.bag_ids,[created.find(b=>b.blend_group_no===2).id]);
+    assert.equal((await bags(result.id)).find(b=>b.id===started.bag_ids[0]).blend_group_no,2);
+    assert.equal((await bags(result.id)).filter(b=>b.status==='QUEUED' && b.blend_group_no===1).length,2);
+    assert.equal(groupOne.length,2);
+  });
+  await t.test('whole-bean groups persist without a grind and can be started as a packing batch', async () => {
+    const payload=[{...lines(2)[0],clientLineId:'beans',blendGroupId:'whole',mode:'WHOLE_BEAN',grindId:null,grindBarcode:null}];
+    const result=await create(payload); const created=await bags(result.id);
+    assert.ok(created.every(b=>b.process_mode==='WHOLE_BEAN'&&b.grind_id===null&&b.grind_value_snapshot===null));
+    const started=await start(result.id,{quantity:2,grind:null,blendGroupNo:1});
+    assert.equal(started.bag_ids.length,2);
   });
 
   await t.test('invalid quantities, barcode, grind, grinder and excess requests have no effects', async () => {

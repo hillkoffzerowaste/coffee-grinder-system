@@ -9,5 +9,5 @@ export default async function PackingPage() {
   const profile = await currentProfile();
   if (!profile) redirect("/login");
   if (!canUseStation(profile, "packing")) redirect("/login");
-  return <PackingWorkspace profile={profile} uiConfig={await publishedUiConfig(profile.id)} />;
+  return <PackingWorkspace profile={profile} uiConfig={await publishedUiConfig()} />;
 }

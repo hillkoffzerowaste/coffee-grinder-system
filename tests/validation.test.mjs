@@ -6,6 +6,7 @@ import {dropdownGrinds} from '../src/lib/grind-options.ts';
 import { canUseStation } from '../src/lib/permissions.ts';
 import { stationLandingPath } from '../src/lib/auth.ts';
 import { jobStatusLabels } from '../src/lib/job-status.ts';
+import { canJoinBlendGroup, mergeBlendLine, blendLineSummary, productLine } from '../src/lib/blend-orders.ts';
 
 const line = { clientLineId:'one', productId:randomUUID(), productBarcode:'001234567890123456789', grindId:randomUUID(), grindBarcode:'990006', quantity:1 };
 const order = { clientRequestId:randomUUID(), source:'COUNTER', lines:[line] };
@@ -29,6 +30,23 @@ test('reject duplicate client line identifiers', () => {
 });
 test('reject more than 500 bags before contacting database', () => {
   assert.equal(orderSchema.safeParse({...order,lines:Array.from({length:6},(_,i)=>({...line,clientLineId:String(i),quantity:99}))}).success,false);
+});
+test('blend groups use one grind and merge duplicate SKU quantities inside a group', () => {
+  const group = {id:'group-1',mode:'GROUND',grind:{id:line.grindId,grind_value:'6',barcode:'990006'}};
+  const product = {id:line.productId,sku:'TEST',name:'Beans',size_grams:200,unit:'bag',barcode:line.productBarcode};
+  assert.equal(canJoinBlendGroup(group,'GROUND',group.grind),true);
+  assert.equal(canJoinBlendGroup(group,'GROUND',{...group.grind,id:randomUUID(),grind_value:'8'}),false);
+  assert.equal(canJoinBlendGroup(group,'WHOLE_BEAN',null),false);
+  const first=productLine(product,group.id,'GROUND',group.grind,2,'a');
+  const second=productLine(product,group.id,'GROUND',group.grind,3,'b');
+  const merged=mergeBlendLine([first],second);
+  assert.equal(merged.length,1); assert.equal(merged[0].quantity,5);
+  assert.equal(blendLineSummary(merged)[0].total,5);
+});
+test('whole-bean blend groups carry no grind and cannot mix with ground lines', () => {
+  const whole={...line,clientLineId:'whole',blendGroupId:'beans',mode:'WHOLE_BEAN',grindId:null,grindBarcode:null};
+  assert.equal(orderSchema.safeParse({...order,lines:[whole]}).success,true);
+  assert.equal(orderSchema.safeParse({...order,lines:[whole,{...line,clientLineId:'ground',blendGroupId:'beans'}]}).success,false);
 });
 test('login requires username/password and a known station', () => {
   assert.equal(loginSchema.safeParse({username:'counter',password:'secret123',station:'counter'}).success,true);
