@@ -397,6 +397,37 @@ test('packing scans product, grind and quantity to start a batch and completes w
  }finally{await unmount();}
 });
 
+test('packing warns and chimes softly when the batch it holds passes its SLA',async(t)=>{
+ // 250 g ให้เป้า SLA 60 วินาที ถุงที่เข้าคิวมาชั่วโมงหนึ่งจึงเกินแน่นอน
+ const stale=new Date(Date.now()-3600000).toISOString();
+ const api=packingApi(t,[bag({created_at:stale}),bag({queue_seq:2,bag_no:2,created_at:stale})]);
+ const unmount=await mount(PackingWorkspace);
+ try{
+  await scan('packing-scan',product.barcode);
+  await scan('packing-scan',grind.barcode);
+  await input('quantity','2');await select('grinder',profile.id);await submitQuantity();
+  assert.ok(document.body.textContent.includes('เกิน SLA'),'the SLA row calls out the breach');
+  const alert=[...document.querySelectorAll('[role="alert"]')].find(n=>n.textContent.includes('เสร็จสิ้น'));
+  assert.ok(alert,'an alert tells the packer to press the finish button');
+  assert.ok(document.body.textContent.includes('เสร็จสิ้น 2 ถุง'),'the finish button it points at is on screen');
+  assert.equal(api.posts().length,1,'the warning nudges the packer; it never completes the batch for them');
+ }finally{await unmount();}
+});
+
+test('packing stays quiet while the batch it holds is still inside its SLA',async(t)=>{
+ const api=packingApi(t,[bag(),bag({queue_seq:2,bag_no:2})]);
+ const unmount=await mount(PackingWorkspace);
+ try{
+  await scan('packing-scan',product.barcode);
+  await scan('packing-scan',grind.barcode);
+  await input('quantity','2');await select('grinder',profile.id);await submitQuantity();
+  assert.ok(document.body.textContent.includes('อยู่ใน SLA'));
+  assert.ok(!document.body.textContent.includes('เกิน SLA'));
+  assert.equal([...document.querySelectorAll('[role="alert"]')].filter(n=>n.textContent.includes('กด “เสร็จสิ้น”')).length,0);
+  assert.equal(api.posts().length,1);
+ }finally{await unmount();}
+});
+
 test('packing scanner prioritizes queued work over a grinding batch with the same product barcode',async(t)=>{
  const running=bag({status:'GRINDING',grinding_batch_id:batchId,claimed_by:profile.id});
  const sameProductQueued=bag({queue_seq:2,bag_no:2,grind_id:wrongGrind.id,grind_value_snapshot:'8'});

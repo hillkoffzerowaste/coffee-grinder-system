@@ -12,3 +12,5 @@ export function orderSla({ totalGrams, queuedAt, startedAt, finishedAt, now = ne
   const ratio = targetSeconds ? elapsedSeconds / targetSeconds : 0;
   return { elapsedSeconds, targetSeconds, tone: ratio >= 1 ? "danger" : ratio >= .75 ? "warn" : "ok" };
 }
+
+export const slaClock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;

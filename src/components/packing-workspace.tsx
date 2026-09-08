@@ -10,12 +10,13 @@ import {PackingHistory} from "@/components/packing-history";
 import {BlendBadge} from "@/components/blend-badge";
 import {SoundControls} from "@/components/sound-controls";
 import {useSounds} from "@/lib/use-sounds";
-import {useQueueAlarm} from "@/lib/use-queue-alarm";
+import {useQueueAlarm,useSlaAlarm} from "@/lib/use-queue-alarm";
 import {useCatalog} from "@/lib/use-catalog";
 import {apiFetch,ApiError} from "@/lib/api";
 import {useScannerFocus,useScannerInput} from "@/lib/scanner";
 import {batchStartSchema,batchCompleteSchema} from "@/lib/validation";
 import {jobStatusLabels} from "@/lib/job-status";
+import {orderSla,slaClock} from "@/lib/order-sla";
 import type {BagJob,GrindLookup,Profile} from "@/lib/types";
 import type {UiConfig} from "@/lib/ui-config";
 
@@ -29,6 +30,7 @@ const sameWork=(job:BagJob,ref:BagJob)=>groupKey(job)===groupKey(ref)&&job.produ
 export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile:Profile;initialManual?:boolean;uiConfig?:UiConfig}){
  const [manualOpen,setManualOpen]=useState(initialManual);
  const [pane,setPane]=useState<"work"|"history">("work");
+ const [clockTick,setClockTick]=useState(()=>Date.now());
  const [jobs,setJobs]=useState<BagJob[]>([]),[queuedCount,setQueuedCount]=useState(0),[hasMore,setHasMore]=useState(false);
  const [context,setContext]=useState<BagJob|null>(null),[orderJobs,setOrderJobs]=useState<BagJob[]>([]),[candidates,setCandidates]=useState<BagJob[]>([]);
  const [batchId,setBatchId]=useState(""),[batchJobs,setBatchJobs]=useState<BagJob[]>([]),[revision,setRevision]=useState(0);
@@ -40,7 +42,13 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
  const {grinds,grinders,catalogError,reloadCatalog}=useCatalog(),sound=useSounds();
  useScannerInput(scanRef,setScan,!manualOpen);
  useScannerFocus(scanRef,manualOpen||busy||!!grind||!!pending||recoveryError);
+ const canCompleteBatch=batchJobs.length>0&&batchJobs.every(j=>j.status==="GRINDING"&&j.claimed_by===profile.id);
+ // SLA ของชุดที่ถืออยู่ นับจากเวลาที่ออเดอร์เข้าคิว ใช้สูตรเดียวกับที่หน้าร้านเห็น
+ const batchSla=batchJobs.length?orderSla({totalGrams:batchJobs.reduce((sum,j)=>sum+j.size_grams_snapshot,0),
+  queuedAt:batchJobs.map(j=>j.created_at).sort()[0],now:new Date(clockTick)}):null;
+ const slaOverdue=batchSla?.tone==="danger"&&canCompleteBatch;
  useQueueAlarm(queuedCount>0,sound.enabled,sound.play);
+ useSlaAlarm(!!slaOverdue,sound.enabled,sound.play);
  const storageKey=`coffee-packing-pending:${profile.id}`;
  const canStart=(job:BagJob)=>job.status==="QUEUED"||(job.status==="CLAIMED"&&(job.claimed_by===profile.id||profile.role==="admin"));
  const available=orderJobs.filter(job=>context&&sameWork(job,context)&&canStart(job)&&(context.process_mode==="WHOLE_BEAN"?job.process_mode==="WHOLE_BEAN":job.grind_id===grind?.id));
@@ -77,6 +85,12 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
   void load();const timer=setInterval(()=>void load(),5000);
   return()=>{active=false;clearInterval(timer);};
  },[context,batchId,revision]);
+ // เดินเฉพาะตอนถือชุดงานอยู่ ไม่งั้น SLA จะขยับแค่ตอนคิวรีเฟรช
+ useEffect(()=>{
+  if(!batchId)return;
+  const timer=setInterval(()=>setClockTick(Date.now()),5000);
+  return()=>clearInterval(timer);
+ },[batchId]);
  async function choose(job:BagJob){
   if(operation.current||pendingRef.current||recoveryError)return;
   setPane("work");  setError("");setMessage("");setGrind(null);setWholeBeanReady(false);setCandidates([]);setBatchId("");setBatchJobs([]);setContext(null);setOrderJobs([]);
@@ -158,7 +172,6 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
  for(const j of jobs){const k=groupKey(j);const list=groupMembers.get(k)??[];if(!list.some(m=>m.sku_snapshot===j.sku_snapshot))list.push(j);groupMembers.set(k,list);}
  const membersOf=(j:BagJob)=>groupMembers.get(groupKey(j))??[j];
  const skuCountIn=(list:BagJob[],ref:BagJob)=>new Set(list.filter(j=>groupKey(j)===groupKey(ref)).map(j=>j.sku_snapshot)).size||1;
- const canCompleteBatch=batchJobs.length>0&&batchJobs.every(j=>j.status==="GRINDING"&&j.claimed_by===profile.id);
  if(manualOpen)return <div className="app-shell operational-shell" data-density={uiConfig?.theme.density} data-button-size={uiConfig?.theme.buttonSize}><Topbar title="ห้องแพ็ค · เปิดออเดอร์ด่วน" profile={profile} uiConfig={uiConfig}/><CounterWorkspace embedded profile={profile} source="PACKING_MANUAL" onCancel={()=>{setManualOpen(false);setScan("");refocus();}} onCompleted={id=>{setContext(null);setCandidates([]);setOrderJobs([]);setBatchJobs([]);setBatchId(id);setScan("");setMessage("เปิดออเดอร์แล้ว — กำลังบด");setRevision(n=>n+1);setManualOpen(false);refocus();}}/></div>;
  return <div className="app-shell operational-shell" data-density={uiConfig?.theme.density} data-button-size={uiConfig?.theme.buttonSize}><Topbar title="ห้องแพ็ค" profile={profile} uiConfig={uiConfig}/><main id="main" tabIndex={-1} className="workspace grid packing-layout">
   <section ref={queueRef} className="panel packing-queue"><SoundControls sound={sound} onReady={refocus}/>
@@ -185,6 +198,8 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
   </div><div className="detail-actions">
    {error&&<div className="notice error" role="alert">{error}</div>}{message&&<div className="notice success" role="status">{message}</div>}
    {pending&&!grind&&<div className="notice"><div>{pending.description}</div><button className="button" disabled={busy} onClick={()=>void execute(pending)}>ยืนยันรายการค้างด้วยข้อมูลเดิม</button></div>}
+   {batchSla&&<div className={`sla-summary ${batchSla.tone}`}><strong>SLA {slaClock(batchSla.elapsedSeconds)} / {slaClock(batchSla.targetSeconds)}</strong><span>{batchSla.tone==="danger"?"เกิน SLA":batchSla.tone==="warn"?"ใกล้ถึง SLA":"อยู่ใน SLA"}</span></div>}
+   {slaOverdue&&<div className="notice error" role="alert">ชุดนี้เกิน SLA แล้ว — บดเสร็จแล้วให้กด “เสร็จสิ้น” ทันที</div>}
    {batchId&&<button data-testid="job-action" className="button large" disabled={busy||!!pending||!canCompleteBatch} onClick={()=>void execute({path:"/api/jobs/complete",body:JSON.stringify({clientRequestId:crypto.randomUUID(),batchId}),description:`เสร็จสิ้นชุดงาน ${batchJobs.length} ถุง`})}>เสร็จสิ้น {batchJobs.length} ถุง</button>}
    {batchJobs.length>0&&!canCompleteBatch&&<small>ผู้รับงานชุดนี้ต้องเป็นผู้ยืนยันเสร็จสิ้น</small>}
    <small>รอรับ {queuedCount} ถุง · เสียงเตือนระดับ 100% ดังซ้ำทุก 3 วินาทีจนงานรอรับเหลือ 0 ถุง</small>

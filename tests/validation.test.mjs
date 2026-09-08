@@ -6,6 +6,9 @@ import {dropdownGrinds} from '../src/lib/grind-options.ts';
 import { canUseStation } from '../src/lib/permissions.ts';
 import { stationLandingPath } from '../src/lib/auth.ts';
 import { jobStatusLabels } from '../src/lib/job-status.ts';
+import { soundGain, soundNotes } from '../src/lib/use-sounds.ts';
+import { QUEUE_ALARM_INTERVAL_MS, SLA_ALARM_INTERVAL_MS } from '../src/lib/use-queue-alarm.ts';
+import { orderSla, slaClock } from '../src/lib/order-sla.ts';
 import { canJoinBlendGroup, mergeBlendLine, blendLineSummary, productLine } from '../src/lib/blend-orders.ts';
 
 const line = { clientLineId:'one', productId:randomUUID(), productBarcode:'001234567890123456789', grindId:randomUUID(), grindBarcode:'990006', quantity:1 };
@@ -98,4 +101,22 @@ test('order notes are trimmed, bounded and refused for packing-room orders', () 
   assert.equal(counterNoteOnly({source:'PACKING_MANUAL',note:'ขอบดหยาบ'}),false);
   assert.equal(counterNoteOnly({source:'PACKING_MANUAL'}),true);
   assert.equal(counterNoteOnly({source:'COUNTER',note:'ขอบดหยาบ'}),true);
+});
+
+test('the SLA chime is quieter and rarer than the queue alarm', () => {
+  // เสียงนี้สะกิดคนที่ถืองานอยู่ ไม่ใช่เรียกคนทั้งห้อง ดังเท่ากันเมื่อไหร่ก็กลบเสียงงานเข้า
+  assert.ok(soundGain.slaDue < soundGain.newJob, 'SLA chime must be softer than the new-job alarm');
+  assert.ok(soundGain.slaDue > 0, 'still audible');
+  assert.ok(soundNotes.slaDue.length < soundNotes.newJob.length, 'and shorter');
+  assert.ok(SLA_ALARM_INTERVAL_MS > QUEUE_ALARM_INTERVAL_MS * 5, 'and repeats far less often');
+});
+test('SLA turns danger exactly when the grinding target elapses', () => {
+  const queuedAt = new Date('2026-09-08T00:00:00Z').toISOString();
+  const at = seconds => orderSla({ totalGrams: 250, queuedAt, now: new Date(Date.parse(queuedAt) + seconds * 1000) });
+  assert.equal(at(1).targetSeconds, 60, '250 g targets one minute');
+  assert.equal(at(30).tone, 'ok');
+  assert.equal(at(45).tone, 'warn');
+  assert.equal(at(59).tone, 'warn');
+  assert.equal(at(60).tone, 'danger');
+  assert.equal(slaClock(75), '1:15');
 });

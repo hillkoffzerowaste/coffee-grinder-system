@@ -2,14 +2,13 @@
 import {useEffect,useRef,useState} from "react";
 import {apiFetch} from "@/lib/api";
 import {jobStatusLabels} from "@/lib/job-status";
-import {orderSla} from "@/lib/order-sla";
+import {orderSla,slaClock} from "@/lib/order-sla";
 import {SizeTag} from "@/components/size-tag";
 import type {JobStatus} from "@/lib/types";
 type Summary={id:string;order_no:string;note?:string|null;created_at:string;total_bags:number;total_grams:number;grinding_started_at:string|null;completed_at:string|null;status:string;queued_count:number;active_count:number;completed_count:number;oldest_queued_at:string|null;overdue_queued_count:number;progress?:Partial<Record<JobStatus,number>>};
 type Bag={id:string;bag_no:number;status:JobStatus;product_name_snapshot:string;sku_snapshot:string;size_grams_snapshot:number;grind_value_snapshot:string|null;process_mode:"GROUND"|"WHOLE_BEAN";blend_group_no:number;grinder_name_snapshot:string|null;events:{status:JobStatus;at:string}[]};
 function waitMinutes(oldestQueuedAt:string|null){const time=Date.parse(oldestQueuedAt??"");return Number.isFinite(time)?Math.max(0,Math.floor((Date.now()-time)/60000)):0;}
 function statusClass(status:string){return status==="COMPLETED"?"ok":status==="QUEUED"?"warn":["CLAIMED","GRINDING"].includes(status)?"info":"";}
-function duration(seconds:number){return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`;}
 type MonitorProps={revision:number;defaultView?:"active"|"history";day?:string;query?:string;embedded?:boolean;alerts?:boolean};
 export function OrderMonitor({revision,defaultView="active",day="",query="",embedded=false,alerts=true}:MonitorProps){
  const [orders,setOrders]=useState<Summary[]>([]),[selected,setSelected]=useState("");
@@ -57,7 +56,7 @@ export function OrderMonitor({revision,defaultView="active",day="",query="",embe
    {order.status!=="OPEN"&&<div><span className={`status ${statusClass(order.status)}`}>{order.status==="COMPLETED"?"เสร็จสิ้น":"ยกเลิก"}</span></div>}
    <div className="queue-summary" aria-label={`สรุปคิว ${order.order_no}`}><strong>รอรับ {order.queued_count} ถุง</strong><span>กำลังทำ {order.active_count} ถุง</span><span>เสร็จ {order.completed_count} ถุง</span><span>ค้างนานสุด {waitMinutes(order.oldest_queued_at)} นาที</span></div>
    {order.overdue_queued_count>0&&<div className="notice error overdue-queue-warning" role="alert">มี {order.overdue_queued_count} ถุงรอรับเกิน 1 นาที — โปรดรับงานทันที</div>}
-   {sla&&<div className={`sla-summary ${sla.tone}`}><strong>SLA {duration(sla.elapsedSeconds)} / {duration(sla.targetSeconds)}</strong><span>{sla.tone==="danger"?"เกิน SLA":sla.tone==="warn"?"ใกล้ถึง SLA":"อยู่ใน SLA"}</span></div>}
+   {sla&&<div className={`sla-summary ${sla.tone}`}><strong>SLA {slaClock(sla.elapsedSeconds)} / {slaClock(sla.targetSeconds)}</strong><span>{sla.tone==="danger"?"เกิน SLA":sla.tone==="warn"?"ใกล้ถึง SLA":"อยู่ใน SLA"}</span></div>}
    <div className="row" aria-label={`สถานะ ${order.order_no}`}>{Object.entries(order.progress??{}).map(([status,count])=><span className={`status ${statusClass(status)}`} key={status}>{jobStatusLabels[status as JobStatus]||status} {count}</span>)}</div>
    {selected===order.id&&<div className="stack">{!bags.length&&<small>{detailLoaded?"ไม่มีรายละเอียดถุง":"กำลังโหลดรายละเอียด..."}</small>}{bags.map(bag=><div className="notice" key={bag.id}>
     <strong className={`status ${statusClass(bag.status)}`}>ถุง {bag.bag_no} · {jobStatusLabels[bag.status]}</strong>

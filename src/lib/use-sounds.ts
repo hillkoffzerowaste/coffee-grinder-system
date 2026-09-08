@@ -1,7 +1,9 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from "react";
-export type SoundKind="success"|"error"|"newJob";
-export const soundNotes:Record<SoundKind,number[]>={success:[880],error:[220,220],newJob:[660,880,1100]};
+export type SoundKind="success"|"error"|"newJob"|"slaDue";
+export const soundNotes:Record<SoundKind,number[]>={success:[880],error:[220,220],newJob:[660,880,1100],slaDue:[520,415]};
+// เตือน SLA ดังเบากว่าเสียงงานเข้า เพราะเป็นการสะกิดคนที่ถืองานอยู่ ไม่ใช่เรียกคนทั้งห้อง
+export const soundGain:Record<SoundKind,number>={success:1,error:1,newJob:1,slaDue:.22};
 export function useSounds(){
   const audio=useRef<AudioContext|null>(null),allowed=useRef(false);
   const [enabled,setEnabled]=useState(false),[soundError,setError]=useState("");
@@ -13,7 +15,7 @@ export function useSounds(){
       soundNotes[kind].forEach((frequency,index)=>{
         const oscillator=context.createOscillator(),gain=context.createGain(),start=context.currentTime+index*.18;
         oscillator.frequency.value=frequency;
-        gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(1,start+.01);gain.gain.linearRampToValueAtTime(0,start+.12);
+        gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(soundGain[kind],start+.01);gain.gain.linearRampToValueAtTime(0,start+.12);
         oscillator.connect(gain);gain.connect(context.destination);oscillator.start(start);oscillator.stop(start+.13);
         oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
       });
