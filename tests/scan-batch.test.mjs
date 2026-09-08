@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -337,7 +337,7 @@ test('scan batch migration and RPC contracts', async (t) => {
     await db.exec('set role coffee_guest');
     try {
       for (const sql of [
-        'select coffee.start_scan_batch(null,null,null,null,null,null)',
+        'select coffee.start_scan_batch(null,null,null,null,null,null,null)',
         'select coffee.create_grinding_order(null,null,null)',
         'select coffee.complete_scan_batch(null,null)',
       ]) await assert.rejects(query(sql),/permission denied/);

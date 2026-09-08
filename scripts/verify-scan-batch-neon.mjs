@@ -67,7 +67,7 @@ async function main() {
   assert.equal(new Set(pids).size,3);
   stage = 'verify migration and fixture prerequisites';
   const functions = (await observer.query(`select
-    to_regprocedure('coffee.start_scan_batch(uuid,uuid,text,uuid,integer,uuid)') is not null as start,
+    to_regprocedure('coffee.start_scan_batch(uuid,uuid,text,uuid,integer,uuid,integer)') is not null as start,
     to_regprocedure('coffee.create_grinding_order(uuid,jsonb,uuid)') is not null as manual,
     to_regprocedure('coffee.complete_scan_batch(uuid,uuid)') is not null as complete`)).rows[0];
   assert.ok(functions.start && functions.manual && functions.complete);
@@ -99,9 +99,9 @@ async function main() {
   } catch (error) { await observer.query('rollback').catch(() => {}); throw error; }
   const members = (await observer.query('select id from coffee.bags where order_id=$1 order by queue_seq,id',[order.id])).rows.map(b => b.id);
   assert.equal(members.length,3);
-  const startSql = 'select coffee.start_scan_batch($1,$2,$3,$4,$5,$6) result';
+  const startSql = 'select coffee.start_scan_batch($1,$2,$3,$4,$5,$6,$7) result';
   const winnerKey = randomUUID(), loserKey = randomUUID();
-  const startArgs = key => [key,order.id,product.barcode,grinds[0].id,2,grinder];
+  const startArgs = key => [key,order.id,product.barcode,grinds[0].id,2,grinder,null];
 
   stage = 'competing starts: observe actual parent-order lock contention';
   await beginActor(first,packer);
