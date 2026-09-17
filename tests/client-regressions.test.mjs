@@ -726,6 +726,40 @@ test('counter and manual orders retain identical recovery requests for malformed
  });
 });
 
+test('counter keeps several grinds inside one set and opens the next set only on request',async(t)=>{
+ const posts=[];
+ const second={...product,id:'b2b5e0c8-3a6d-4f0e-9c21-8a4f5f7a1d33',sku:'RB-HK-TWO',name:'Coffee Two',barcode:'001234567891'};
+ t.mock.method(globalThis,'fetch',async(url,init)=>{
+  if(init?.method==='POST'){posts.push(JSON.parse(init.body));return json({order:{id:orderId,order_no:'HK-SET',total_bags:4,batch_id:null}});}
+  if(url==='/api/catalog/options')return json({grinds:[grind,wrongGrind]});
+  if(url===`/api/catalog/product/${second.barcode}`)return json({product:second});
+  if(url.startsWith('/api/catalog/product/'))return json({product});
+  if(url===`/api/catalog/grind/${wrongGrind.barcode}`)return json({grind:wrongGrind});
+  if(url.startsWith('/api/catalog/grind/'))return json({grind});
+  return json({orders:[]});
+ });
+ const unmount=await mount(CounterWorkspace);
+ try{
+  await scan('scan',product.barcode);await scan('scan',grind.barcode);await submitQuantity();
+  await scan('scan',second.barcode);await scan('scan',wrongGrind.barcode);await input('quantity','3');await submitQuantity();
+  const band=document.querySelector('.counter-composer tbody tr.group-band');
+  assert.ok(band.textContent.includes('บดคละเบอร์ 6, 8'),'ชุดเดียวถือได้หลายเบอร์ และป้ายต้องบอกว่าคละเบอร์');
+  assert.ok(band.textContent.includes('กาแฟผสมบด 2 SKU'));
+  assert.equal(document.querySelectorAll('.counter-composer tbody tr.group-band').length,1,'สแกนรายการถัดไปต้องไม่แตกชุดให้เอง');
+  await clickText('เปิดชุดใหม่');
+  assert.equal(document.querySelectorAll('.counter-composer tbody tr.group-band').length,2);
+  await scan('scan',product.barcode);await scan('scan',grind.barcode);await submitQuantity();
+  assert.equal(document.querySelectorAll('.counter-composer tbody tr.group-band').length,2,'รายการใหม่เข้าชุดที่เปิดไว้ ไม่ใช่ชุดที่สาม');
+  await clickText('ยืนยัน 5 ถุง');
+  assert.equal(posts.length,1);
+  const groupIds=posts[0].lines.map(line=>line.blendGroupId);
+  assert.equal(new Set(groupIds).size,2);
+  assert.deepEqual(groupIds.map(id=>id===groupIds[0]),[true,true,false],'ชุดถูกส่งไล่ตามลำดับ เลขชุดหน้าร้านจึงตรงกับห้องแพ็ค');
+  assert.deepEqual(posts[0].lines.map(line=>line.grindId),[grind.id,wrongGrind.id,grind.id]);
+  assert.deepEqual(posts[0].lines.map(line=>line.quantity),[1,3,1]);
+ }finally{await unmount();sessionStorage.removeItem(`coffee-pending:${profile.id}:COUNTER`);}
+});
+
 test('counter storage cleanup failure keeps the committed order recoverable with its original body',async(t)=>{
  const calls=[],key=`coffee-pending:${profile.id}:COUNTER`;
  t.mock.method(globalThis,'fetch',async(url,init)=>{

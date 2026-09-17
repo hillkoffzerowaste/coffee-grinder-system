@@ -17,6 +17,7 @@ import {useScannerFocus,useScannerInput} from "@/lib/scanner";
 import {batchStartSchema,batchCompleteSchema} from "@/lib/validation";
 import {jobStatusLabels} from "@/lib/job-status";
 import {orderSla,slaClock} from "@/lib/order-sla";
+import {preparationLabel} from "@/lib/blend-orders";
 import type {BagJob,GrindLookup,Profile} from "@/lib/types";
 import type {UiConfig} from "@/lib/ui-config";
 
@@ -26,6 +27,8 @@ type BatchResult={batch:{batch_id:string;bag_ids:string[]}};
 const groupKey=(job:BagJob)=>`${job.order_id}:${job.blend_group_no??job.product_barcode_snapshot}`;
 const orderNo=(job:BagJob)=>job.orders?.order_no??job.order?.order_no??job.order_id;
 const sameWork=(job:BagJob,ref:BagJob)=>groupKey(job)===groupKey(ref)&&job.product_barcode_snapshot===ref.product_barcode_snapshot;
+// หนึ่งชุดใส่ได้หลายเบอร์บด งานในชุดจึงแยกกันที่ SKU คู่กับเบอร์ ไม่ใช่ SKU อย่างเดียว
+const workKey=(job:BagJob)=>`${job.sku_snapshot}|${job.grind_id??"BEAN"}`;
 
 export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile:Profile;initialManual?:boolean;uiConfig?:UiConfig}){
  const [manualOpen,setManualOpen]=useState(initialManual);
@@ -169,7 +172,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
  for(const j of jobs){const k=j.grinding_batch_id??`${j.order_id}:${j.blend_group_no??j.id}`;if(!rowIndex.has(k))rowIndex.set(k,j);}
  const visibleRows=[...rowIndex.values()];
  const groupMembers=new Map<string,BagJob[]>();
- for(const j of jobs){const k=groupKey(j);const list=groupMembers.get(k)??[];if(!list.some(m=>m.sku_snapshot===j.sku_snapshot))list.push(j);groupMembers.set(k,list);}
+ for(const j of jobs){const k=groupKey(j);const list=groupMembers.get(k)??[];if(!list.some(m=>workKey(m)===workKey(j)))list.push(j);groupMembers.set(k,list);}
  const membersOf=(j:BagJob)=>groupMembers.get(groupKey(j))??[j];
  const skuCountIn=(list:BagJob[],ref:BagJob)=>new Set(list.filter(j=>groupKey(j)===groupKey(ref)).map(j=>j.sku_snapshot)).size||1;
  if(manualOpen)return <div className="app-shell operational-shell" data-density={uiConfig?.theme.density} data-button-size={uiConfig?.theme.buttonSize}><Topbar title="ห้องแพ็ค · เปิดออเดอร์ด่วน" profile={profile} uiConfig={uiConfig}/><CounterWorkspace embedded profile={profile} source="PACKING_MANUAL" onCancel={()=>{setManualOpen(false);setScan("");refocus();}} onCompleted={id=>{setContext(null);setCandidates([]);setOrderJobs([]);setBatchJobs([]);setBatchId(id);setScan("");setMessage("เปิดออเดอร์แล้ว — กำลังบด");setRevision(n=>n+1);setManualOpen(false);refocus();}}/></div>;
@@ -181,7 +184,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    {!context&&<JobSearch query={scan} disabled={busy||!!pending||recoveryError} profileId={profile.id} isAdmin={profile.role==="admin"} onSelect={job=>{setScan("");void choose(job);}}/>}
    <section className="barcode-drawer"><GrindBarcodes grinds={grinds} error={catalogError} retry={reloadCatalog} disabled={!context||context.status==="GRINDING"||busy||!!pending||!!grind||recoveryError} onSelect={g=>void selectManualGrind(g.id)}/></section>
    {hasMore&&<div className="notice">แสดง 1,000 ถุงแรก — สแกนบาร์โค้ดหรือเลขคิวเพื่อค้นหางานที่เหลือ</div>}
-   <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>ชุด / สินค้า / ออเดอร์</th><th>ขนาด</th><th>วิธีเตรียม</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{visibleRows.map(j=>{const members=membersOf(j),mixed=new Set(members.map(m=>m.size_grams_snapshot)).size>1;return <tr key={j.grinding_batch_id??`${j.order_id}:${j.blend_group_no??j.id}`} className={members.length>1&&j.process_mode!=="WHOLE_BEAN"?"is-blend-row":undefined}><td>#{j.queue_seq}</td><td><span className="band-parts">ชุดที่ {j.blend_group_no??"-"}<BlendBadge skuCount={members.length} mode={j.process_mode} /></span>{members.map(m=><div key={m.sku_snapshot} className="band-parts">{m.product_name_snapshot} <small>· {m.sku_snapshot}</small>{mixed&&<SizeTag grams={m.size_grams_snapshot} mode={m.process_mode} />}</div>)}<small>{orderNo(j)}</small>{j.orders?.note&&<div className="notice order-note"><strong>หมายเหตุ:</strong> {j.orders.note}</div>}</td><td>{mixed?<span className="muted">คละขนาด</span>:<SizeTag grams={j.size_grams_snapshot} mode={j.process_mode} />}</td><td>{j.process_mode==="WHOLE_BEAN"?"เมล็ด":`บดเบอร์ ${j.grind_value_snapshot}`}</td><td><span className={`status ${j.status==="QUEUED"?"warn":"info"}`}>{jobStatusLabels[j.status]}</span>{j.grinding_batch_id&&<small> · ชุดงาน</small>}</td><td>{members.map(m=><button key={m.sku_snapshot} className="button secondary" disabled={busy||!!pending||recoveryError} onClick={()=>void choose(m)}>เปิดงาน{members.length>1?` · ${m.sku_snapshot}`:""}</button>)}</td></tr>;})}</tbody></table>{!jobs.length&&<div className="empty">ไม่มีงานในคิวนี้</div>}</div>
+   <div className="data-table-wrap"><table className="data-table"><thead><tr><th>คิว</th><th>ชุด / สินค้า / ออเดอร์</th><th>ขนาด</th><th>วิธีเตรียม</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{visibleRows.map(j=>{const members=membersOf(j),mixed=new Set(members.map(m=>m.size_grams_snapshot)).size>1,mixedGrinds=new Set(members.map(m=>m.grind_value_snapshot)).size>1;return <tr key={j.grinding_batch_id??`${j.order_id}:${j.blend_group_no??j.id}`} className={members.length>1&&j.process_mode!=="WHOLE_BEAN"?"is-blend-row":undefined}><td>#{j.queue_seq}</td><td><span className="band-parts">ชุดที่ {j.blend_group_no??"-"}<BlendBadge skuCount={members.length} mode={j.process_mode} /></span>{members.map(m=><div key={workKey(m)} className="band-parts">{m.product_name_snapshot} <small>· {m.sku_snapshot}</small>{mixed&&<SizeTag grams={m.size_grams_snapshot} mode={m.process_mode} />}{mixedGrinds&&<span className="status">{preparationLabel(m.process_mode,[m.grind_value_snapshot])}</span>}</div>)}<small>{orderNo(j)}</small>{j.orders?.note&&<div className="notice order-note"><strong>หมายเหตุ:</strong> {j.orders.note}</div>}</td><td>{mixed?<span className="muted">คละขนาด</span>:<SizeTag grams={j.size_grams_snapshot} mode={j.process_mode} />}</td><td>{preparationLabel(j.process_mode,members.map(m=>m.grind_value_snapshot))}</td><td><span className={`status ${j.status==="QUEUED"?"warn":"info"}`}>{jobStatusLabels[j.status]}</span>{j.grinding_batch_id&&<small> · ชุดงาน</small>}</td><td>{members.map(m=><button key={workKey(m)} className="button secondary" disabled={busy||!!pending||recoveryError} onClick={()=>void choose(m)}>เปิดงาน{members.length>1?` · ${m.sku_snapshot}${mixedGrinds?` · ${preparationLabel(m.process_mode,[m.grind_value_snapshot])}`:""}`:""}</button>)}</td></tr>;})}</tbody></table>{!jobs.length&&<div className="empty">ไม่มีงานในคิวนี้</div>}</div>
    <small>อัปเดตล่าสุด {lastSync||"กำลังเชื่อมต่อ..."} · โหลดข้อมูลซ้ำทุก 5 วินาที</small>
   </section>
   <aside className="panel packing-detail">

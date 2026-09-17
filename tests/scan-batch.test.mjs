@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql','011_blend_group_mixed_grinds.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -147,6 +147,25 @@ test('scan batch migration and RPC contracts', async (t) => {
     assert.deepEqual(blendStart.bag_ids, created.filter(b=>b.blend_group_no===1 && b.product_barcode_snapshot===barcode).map(b=>b.id));
     // ถุงอีก SKU ของชุดผสมยังไม่ถูกดึงไปด้วย เพราะคนละบาร์โค้ด
     assert.equal((await bags(result.id)).filter(b=>b.status==='QUEUED').map(b=>b.product_barcode_snapshot).join(),barcodeC);
+  });
+  await t.test('one blend group holds two grinds and each grind starts as its own batch', async () => {
+    // ชุดเดียวของลูกค้าคนเดียวสั่งบดคนละเบอร์ได้ ห้องแพ็คยังบดทีละเบอร์ตามเดิม
+    const payload = [
+      {...lines(2)[0], clientLineId:'two-grinds-six', blendGroupId:'two-grinds', mode:'GROUND'},
+      {...lines(3)[0], clientLineId:'two-grinds-eight', blendGroupId:'two-grinds', mode:'GROUND', grindId:grind8, grindBarcode:'990008'},
+    ];
+    const result = await create(payload);
+    const created = await bags(result.id);
+    assert.deepEqual(created.map(b=>b.blend_group_no),[1,1,1,1,1]);
+    assert.deepEqual(created.map(b=>b.grind_value_snapshot),['6','6','8','8','8']);
+    assert.equal((await query('select count(*)::int as count from coffee.order_items where order_id=$1',[result.id]))[0].count,2);
+    // เบอร์ 6 อยู่คิวต้นกว่า การเริ่มเบอร์ 8 ต้องไม่คว้าถุงเบอร์ 6 ไปด้วย
+    const eight = await start(result.id,{quantity:3,grind:grind8,blendGroupNo:1});
+    assert.deepEqual(eight.bag_ids, created.filter(b=>b.grind_value_snapshot==='8').map(b=>b.id));
+    assert.equal((await bags(result.id)).filter(b=>b.status==='QUEUED').length,2);
+    const six = await start(result.id,{quantity:2,blendGroupNo:1});
+    assert.deepEqual(six.bag_ids, created.filter(b=>b.grind_value_snapshot==='6').map(b=>b.id));
+    assert.notEqual(six.batch_id,eight.batch_id);
   });
   await t.test('whole-bean groups persist without a grind and can be started as a packing batch', async () => {
     const payload=[{...lines(2)[0],clientLineId:'beans',blendGroupId:'whole',mode:'WHOLE_BEAN',grindId:null,grindBarcode:null}];

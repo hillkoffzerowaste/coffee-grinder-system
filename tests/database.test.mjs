@@ -11,7 +11,7 @@ test('order list SQL separates active/history before pagination and reports queu
  try{
   // ยึดสคีมาจริงจาก migration ไม่ประกาศตารางเอง fixture จะได้ไม่ drift จาก production
   for(const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
-    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes']){
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds']){
    await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(/\r\n/g,'\n'));
   }
   const owner=randomUUID();
@@ -61,7 +61,7 @@ test('database migrations and operational invariants', async (t) => {
   t.after(() => db.close());
   // ไล่ทุก migration ให้ตรงกับ production ไม่ใช่หยุดที่ 004 แล้วยืนยัน invariant ของสคีมาที่เลิกใช้แล้ว
   for (const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
-    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes']) {
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds']) {
     await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(CRLF,LF));
   }
   await db.exec('set search_path=coffee,pg_catalog');
