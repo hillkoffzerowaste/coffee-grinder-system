@@ -97,12 +97,13 @@ function bag(overrides={}) {
     product_barcode_snapshot:product.barcode,created_at:new Date().toISOString(),...overrides};
 }
 function packingApi(t,jobs=[bag()]) {
-  const state={jobs,calls:[],unexpected:[],start:null,complete:null,grinds:[grind,wrongGrind]};
+  const state={jobs,calls:[],unexpected:[],start:null,complete:null,startedAt:null,grinds:[grind,wrongGrind]};
   const queue=items=>json({jobs:items,queuedCount:items.filter(j=>j.status==='QUEUED').length});
   state.commitStart=body=>{
     const selected=state.jobs.filter(j=>j.order_id===body.orderId&&j.product_barcode_snapshot===body.productBarcode&&j.grind_id===body.grindId&&(j.status==='QUEUED'||j.status==='CLAIMED')).slice(0,body.quantity);
     assert.equal(selected.length,body.quantity,'mock has the requested bags');
-    state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:batchId,grinder_name_snapshot:'Operator'}:j);
+    const startedAt=state.startedAt??new Date().toISOString();
+  state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:batchId,grinder_name_snapshot:'Operator',started_at:startedAt}:j);
     return json({batch:{batch_id:batchId,bag_ids:selected.map(j=>j.id)}});
   };
   t.mock.method(globalThis,'fetch',async(url,init)=>{
@@ -398,9 +399,10 @@ test('packing scans product, grind and quantity to start a batch and completes w
 });
 
 test('packing warns and chimes softly when the batch it holds passes its SLA',async(t)=>{
- // 250 g ให้เป้า SLA 60 วินาที ถุงที่เข้าคิวมาชั่วโมงหนึ่งจึงเกินแน่นอน
+ // 250 g ให้เป้า SLA 60 วินาที ชุดที่กดรับไว้ตั้งแต่ชั่วโมงก่อนจึงเกินแน่นอน
  const stale=new Date(Date.now()-3600000).toISOString();
  const api=packingApi(t,[bag({created_at:stale}),bag({queue_seq:2,bag_no:2,created_at:stale})]);
+ api.startedAt=stale;
  const unmount=await mount(PackingWorkspace);
  try{
   await scan('packing-scan',product.barcode);
@@ -415,7 +417,9 @@ test('packing warns and chimes softly when the batch it holds passes its SLA',as
 });
 
 test('packing stays quiet while the batch it holds is still inside its SLA',async(t)=>{
- const api=packingApi(t,[bag(),bag({queue_seq:2,bag_no:2})]);
+ // เวลารอคิวก่อนหน้าไม่ใช่ความช้าของคนที่เพิ่งกดรับ SLA จึงเริ่มนับตอนรับงาน
+ const stale=new Date(Date.now()-3600000).toISOString();
+ const api=packingApi(t,[bag({created_at:stale}),bag({queue_seq:2,bag_no:2,created_at:stale})]);
  const unmount=await mount(PackingWorkspace);
  try{
   await scan('packing-scan',product.barcode);

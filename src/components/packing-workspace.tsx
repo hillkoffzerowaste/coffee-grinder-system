@@ -46,9 +46,11 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
  useScannerInput(scanRef,setScan,!manualOpen);
  useScannerFocus(scanRef,manualOpen||busy||!!grind||!!pending||recoveryError);
  const canCompleteBatch=batchJobs.length>0&&batchJobs.every(j=>j.status==="GRINDING"&&j.claimed_by===profile.id);
- // SLA ของชุดที่ถืออยู่ นับจากเวลาที่ออเดอร์เข้าคิว ใช้สูตรเดียวกับที่หน้าร้านเห็น
+ // SLA ของชุดที่ถืออยู่ เริ่มนับตอนกดรับงาน เวลารอคิวก่อนหน้าไม่ใช่ความช้าของคนที่เพิ่งรับ
+ const batchStartedAt=batchJobs.map(j=>j.started_at).filter((at):at is string=>!!at).sort()[0]
+  ??batchJobs.map(j=>j.created_at).sort()[0];
  const batchSla=batchJobs.length?orderSla({totalGrams:batchJobs.reduce((sum,j)=>sum+j.size_grams_snapshot,0),
-  queuedAt:batchJobs.map(j=>j.created_at).sort()[0],now:new Date(clockTick)}):null;
+  startedAt:batchStartedAt,now:new Date(clockTick)}):null;
  const slaOverdue=batchSla?.tone==="danger"&&canCompleteBatch;
  useQueueAlarm(queuedCount>0,sound.enabled,sound.play);
  useSlaAlarm(!!slaOverdue,sound.enabled,sound.play);

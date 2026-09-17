@@ -54,6 +54,7 @@ export interface BagJob {
   process_mode?: "GROUND" | "WHOLE_BEAN";
   product_barcode_snapshot: string;
   grinder_name_snapshot?: string | null;
+  started_at?: string | null;
   created_at: string;
   order?: { order_no: string } | null;
 }

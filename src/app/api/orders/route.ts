@@ -17,6 +17,11 @@ export async function GET(request:Request) {
    (select min(b.created_at) from coffee.bags b where b.order_id=o.id and b.status='QUEUED') as oldest_queued_at,
    (select count(*)::int from coffee.bags b where b.order_id=o.id and b.status='QUEUED' and b.created_at < now() - interval '1 minute') as overdue_queued_count,
    coalesce((select sum(b.size_grams_snapshot)::int from coffee.bags b where b.order_id=o.id and b.status<>'CANCELLED'),0)::int as total_grams,
+   -- เป้า SLA ต้องรวมงานที่ต่อคิวอยู่ข้างหน้า เพราะห้องแพ็คบดไล่ตามลำดับคิวเสมอ
+   coalesce((select sum(ahead.size_grams_snapshot)::int from coffee.bags ahead
+     where ahead.status in ('QUEUED','CLAIMED','GRINDING') and ahead.order_id<>o.id
+       and ahead.queue_seq < (select min(mine.queue_seq) from coffee.bags mine
+         where mine.order_id=o.id and mine.status in ('QUEUED','CLAIMED','GRINDING'))),0)::int as queue_ahead_grams,
    (select min(b.started_at) from coffee.bags b where b.order_id=o.id and b.started_at is not null) as grinding_started_at,
    (select max(b.completed_at) from coffee.bags b where b.order_id=o.id and b.completed_at is not null) as completed_at,
    coalesce((select jsonb_object_agg(s.status,s.n) from (select b.status,count(*)::int n from coffee.bags b where b.order_id=o.id group by b.status) s),'{}'::jsonb) progress
