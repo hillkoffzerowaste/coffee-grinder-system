@@ -88,6 +88,7 @@ async function settleFocus(){await act(async()=>new Promise(resolve=>setTimeout(
 const orderId='64b6a8f2-88a1-46e4-9aab-739390b48544';
 const otherOrderId='c54d6f81-0678-4d57-9a60-b17cef5e13c1';
 const batchId='a78cdd0d-5906-48c1-8f44-df2b2a4f6a2d';
+const secondBatchId='7f0c1b5e-9d2a-4c3b-8e41-2f6a9c0d5b71';
 const wrongGrind={...grind,id:'4d96df31-6b9a-4b42-a756-d0b6f1093ad1',grind_value:'8',barcode:'990008'};
 const uuid=/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i;
 function bag(overrides={}) {
@@ -103,8 +104,10 @@ function packingApi(t,jobs=[bag()]) {
     const selected=state.jobs.filter(j=>j.order_id===body.orderId&&j.product_barcode_snapshot===body.productBarcode&&j.grind_id===body.grindId&&(j.status==='QUEUED'||j.status==='CLAIMED')).slice(0,body.quantity);
     assert.equal(selected.length,body.quantity,'mock has the requested bags');
     const startedAt=state.startedAt??new Date().toISOString();
-  state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:batchId,grinder_name_snapshot:'Operator',started_at:startedAt}:j);
-    return json({batch:{batch_id:batchId,bag_ids:selected.map(j=>j.id)}});
+    // รับงานต่อเนื่องได้ ชุดที่สองจึงต้องเป็นคนละ batch กับชุดแรกเหมือนของจริง
+    const id=state.jobs.some(j=>j.grinding_batch_id===batchId)?secondBatchId:batchId;
+    state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:id,grinder_name_snapshot:'Operator',started_at:startedAt}:j);
+    return json({batch:{batch_id:id,bag_ids:selected.map(j=>j.id)}});
   };
   t.mock.method(globalThis,'fetch',async(url,init)=>{
     const method=init?.method??'GET';state.calls.push({url,method,body:init?.body});
@@ -116,6 +119,7 @@ function packingApi(t,jobs=[bag()]) {
       if(url==='/api/jobs')return queue(state.jobs);
       const parsed=new URL(url,'http://localhost');
       if(parsed.pathname==='/api/jobs'){
+        if(parsed.searchParams.get('mine')==='1')return queue(state.jobs.filter(j=>j.status==='GRINDING'&&j.claimed_by===profile.id));
         if(parsed.searchParams.has('scan'))return queue(state.jobs.filter(j=>j.product_barcode_snapshot===parsed.searchParams.get('scan')));
         if(parsed.searchParams.has('orderId'))return queue(state.jobs.filter(j=>j.order_id===parsed.searchParams.get('orderId')));
         if(parsed.searchParams.has('batch'))return queue(state.jobs.filter(j=>j.grinding_batch_id===parsed.searchParams.get('batch')));
@@ -440,7 +444,7 @@ test('packing scanner prioritizes queued work over a grinding batch with the sam
  try{
   await scan('packing-scan',product.barcode);
   assert.equal(document.querySelector('.product-result .product-name')?.textContent,product.name,'the queued item opens directly instead of the running batch masking it');
-  assert.equal(document.querySelectorAll('.detail-content button').length,0,'one queued order needs no manual choice');
+  assert.equal([...document.querySelectorAll('.detail-content button')].filter(b=>!b.closest('.held-batches')).length,0,'one queued order needs no manual choice');
   await clickText('สแกนสินค้าใหม่');await scan('packing-scan','001234567891');
   assert.equal(document.querySelector('.product-result .product-name')?.textContent,'Other coffee','a different product remains scannable while another batch is grinding');
   assert.equal(api.posts().length,0);
@@ -487,22 +491,43 @@ test('packing rejects a valid but wrong grind and a failed rescan cannot reuse c
  }finally{await unmount();}
 });
 
-test('packing ambiguous product scan requires explicit order selection before grind and batch start',async(t)=>{
+test('packing opens the first queue on an ambiguous scan and still lets the packer switch order',async(t)=>{
  const api=packingApi(t,[bag(),bag({queue_seq:2,bag_no:2}),bag({order_id:otherOrderId,orders:{order_no:'HK-B'},queue_seq:3})]);
  const unmount=await mount(PackingWorkspace);
  try{
   await scan('packing-scan',product.barcode);
-  assert.ok(document.body.textContent.includes('กรุณาเลือกออเดอร์ก่อนสแกนเบอร์บด'));
-  const choices=[...document.querySelectorAll('.detail-content button')];
+  // เจอของตรงกันก็รับได้เลย ไม่ต้องรอเลือกคิวก่อน แต่ชุดอื่นยังคาไว้ให้สลับ
+  assert.ok(document.body.textContent.includes('เปิดชุดคิวแรกให้แล้ว'));
+  assert.equal(document.querySelector('.product-result .product-name')?.textContent,product.name);
+  const choices=[...document.querySelectorAll('.detail-content button')].filter(b=>!b.closest('.held-batches'));
   assert.equal(choices.length,2,'bags in the same order/product form one choice');
   assert.ok(choices.some(b=>b.textContent.includes('HK-A')));assert.ok(choices.some(b=>b.textContent.includes('HK-B')));
-  assert.equal(document.querySelector('.product-result'),null);assert.equal(document.querySelector('dialog'),null);
+  assert.equal(document.querySelector('dialog'),null);
   assert.equal(api.calls.filter(c=>c.url.includes('/api/catalog/grind/')).length,0);assert.equal(api.posts().length,0);
   await clickText('HK-B');await scan('packing-scan',grind.barcode);
   assert.ok(document.querySelector('dialog').textContent.includes('HK-B'));assert.equal(document.getElementById('quantity').max,'1');
   await select('grinder',profile.id);await submitQuantity();
   assert.equal(api.posts().length,1);assert.equal(JSON.parse(api.posts()[0].body).orderId,otherOrderId);
   assert.ok(api.jobs.filter(j=>j.order_id===orderId).every(j=>j.status==='QUEUED'));
+ }finally{await unmount();}
+});
+
+test('packing accepts one batch after another without finishing the first',async(t)=>{
+ const api=packingApi(t,[bag(),bag({queue_seq:2,bag_no:2}),bag({order_id:otherOrderId,orders:{order_no:'HK-B'},queue_seq:3,bag_no:3})]);
+ const unmount=await mount(PackingWorkspace);
+ try{
+  await scan('packing-scan',product.barcode);await scan('packing-scan',grind.barcode);
+  await input('quantity','2');await select('grinder',profile.id);await submitQuantity();
+  assert.equal(api.posts().length,1);assert.equal(JSON.parse(api.posts()[0].body).orderId,orderId);
+  // ยังไม่ปิดชุดแรก แต่สแกนถุงของอีกคิวแล้วกดรับต่อได้ทันที
+  await scan('packing-scan',product.barcode);await scan('packing-scan',grind.barcode);
+  await input('quantity','1');await submitQuantity();
+  assert.equal(api.posts().length,2);assert.equal(JSON.parse(api.posts()[1].body).orderId,otherOrderId);
+  const held=[...document.querySelectorAll('.held-batch')];
+  assert.equal(held.length,2,'ชุดที่ถืออยู่ต้องค้างบนจอทั้งสองชุด');
+  assert.ok(held.some(row=>row.textContent.includes('HK-A')&&row.textContent.includes('2 ถุง')));
+  assert.ok(held.some(row=>row.textContent.includes('HK-B')&&row.textContent.includes('1 ถุง')));
+  assert.ok(api.jobs.every(j=>j.status==='GRINDING'&&j.claimed_by===profile.id),'ทุกถุงถูกรับไว้แล้วโดยไม่ต้องปิดชุดไหนก่อน');
  }finally{await unmount();}
 });
 
