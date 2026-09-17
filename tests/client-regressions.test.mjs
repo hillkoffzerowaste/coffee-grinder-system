@@ -730,6 +730,31 @@ test('counter and manual orders retain identical recovery requests for malformed
  });
 });
 
+test('single-grind mode still gives every SKU its own set with no set controls',async(t)=>{
+ const posts=[];
+ const second={...product,id:'b2b5e0c8-3a6d-4f0e-9c21-8a4f5f7a1d33',sku:'RB-HK-TWO',name:'Coffee Two',barcode:'001234567891'};
+ t.mock.method(globalThis,'fetch',async(url,init)=>{
+  if(init?.method==='POST'){posts.push(JSON.parse(init.body));return json({order:{id:orderId,order_no:'HK-ONE',total_bags:2,batch_id:null}});}
+  if(url==='/api/catalog/options')return json({grinds:[grind,wrongGrind]});
+  if(url===`/api/catalog/product/${second.barcode}`)return json({product:second});
+  if(url.startsWith('/api/catalog/product/'))return json({product});
+  if(url.startsWith('/api/catalog/grind/'))return json({grind});
+  return json({orders:[]});
+ });
+ const unmount=await mount(CounterWorkspace);
+ try{
+  // หน้าแรกต้องเหมือนเดิม เรื่องชุดจะโผล่ก็ต่อเมื่อเลือกกาแฟผสมเท่านั้น
+  assert.equal([...document.querySelectorAll('button')].filter(b=>b.textContent.includes('เปิดชุดใหม่')).length,0);
+  await scan('scan',product.barcode);await scan('scan',grind.barcode);await submitQuantity();
+  await scan('scan',second.barcode);await scan('scan',grind.barcode);await submitQuantity();
+  assert.equal(document.querySelectorAll('.counter-composer tbody tr.group-band').length,2,'คนละ SKU เบอร์เดียวกัน ยังต้องแยกชุดเอง');
+  assert.equal(document.querySelectorAll('.counter-composer tbody tr.group-band.is-blend').length,0);
+  await clickText('ยืนยัน 2 ถุง');
+  const groupIds=posts[0].lines.map(line=>line.blendGroupId);
+  assert.equal(new Set(groupIds).size,2);
+ }finally{await unmount();sessionStorage.removeItem(`coffee-pending:${profile.id}:COUNTER`);}
+});
+
 test('counter keeps several grinds inside one set and opens the next set only on request',async(t)=>{
  const posts=[];
  const second={...product,id:'b2b5e0c8-3a6d-4f0e-9c21-8a4f5f7a1d33',sku:'RB-HK-TWO',name:'Coffee Two',barcode:'001234567891'};
@@ -744,6 +769,8 @@ test('counter keeps several grinds inside one set and opens the next set only on
  });
  const unmount=await mount(CounterWorkspace);
  try{
+  await clickText('กาแฟผสม');
+  assert.equal(document.querySelectorAll('.counter-composer tbody tr.group-band').length,1,'เลือกผสมแล้วชุดที่ 1 ต้องเปิดรออยู่');
   await scan('scan',product.barcode);await scan('scan',grind.barcode);await submitQuantity();
   await scan('scan',second.barcode);await scan('scan',wrongGrind.barcode);await input('quantity','3');await submitQuantity();
   const band=document.querySelector('.counter-composer tbody tr.group-band');

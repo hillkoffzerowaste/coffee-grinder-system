@@ -172,7 +172,7 @@ try {
           await page.keyboard.press('Escape');
           await expect(page.locator('dialog[open]')).toHaveCount(0);
           await scan(page, '#scan', product.barcode);
-          await expect(page.getByRole('heading', { name: '2. เลือกเบอร์บดของรายการนี้' })).toBeVisible();
+          await expect(page.getByRole('heading', { name: '2. เลือกวิธีเตรียมและเบอร์บด' })).toBeVisible();
           await page.getByRole('button', { name: 'ยกเลิกรายการนี้', exact: true }).click();
           await scan(page, '#scan', product.barcode); await page.locator('#grind-select').selectOption(grinds[2].id);
           await modal(page, `${name}-dropdown`); await confirmQuantity(page, 3, '#scan');
@@ -182,39 +182,44 @@ try {
           await confirmQuantity(page, 4, '#scan'); await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(2);
           await expect(page.locator('.data-table tbody tr:not(.group-band)').first().locator('td').nth(3)).toHaveText('4');
           await expect(page.locator('.data-table tbody tr:not(.group-band)').nth(1).locator('td').nth(3)).toHaveText('3');
-          // สองรายการนี้อยู่ชุดที่ 1 ด้วยกัน คนละเบอร์บด ป้ายชุดต้องบอกว่าคละเบอร์
-          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(1);
-          await expect(page.locator('.data-table tbody tr.group-band').first()).toContainText('บดคละเบอร์ 8, 10');
-          // ชุดใหม่ต้องเกิดจากการกดเท่านั้น รายการถัดไปจึงไม่ไหลไปรวมกับชุดเดิมโดยไม่ตั้งใจ
-          await page.getByRole('button', { name: 'เปิดชุดใหม่', exact: true }).click();
+          // โหมดกาแฟบดเดี่ยว: คนละ SKU เบอร์บดเดียวกัน ต้องไม่ไหลไปรวมชุดเดียวกันเอง
           await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(2);
           await scan(page, '#scan', product2.barcode); await scan(page, '#scan', grinds[1].barcode);
           await confirmQuantity(page, 1, '#scan');
-          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(2);
+          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(3);
+          await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(0);
+          // เรื่องชุดโผล่ก็ต่อเมื่อเลือกกาแฟผสม แล้วชุดถัดไปต้องเปิดเองทุกครั้ง
+          await expect(page.getByRole('button', { name: 'เปิดชุดใหม่', exact: true })).toHaveCount(0);
+          await page.getByRole('button', { name: 'กาแฟผสม', exact: true }).click();
+          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(4);
+          await scan(page, '#scan', product2.barcode); await scan(page, '#scan', grinds[1].barcode);
+          await confirmQuantity(page, 2, '#scan');
           await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(0);
           // SKU ถัดไปในชุดเดิมกดใช้เบอร์ล่าสุดได้ครั้งเดียว โดยไม่ต้องสแกนเบอร์ซ้ำ
           await scan(page, '#scan', product.barcode);
           await expect(page.locator('dialog[open]')).toHaveCount(0);
           await page.getByRole('button', { name: 'ใช้เบอร์เดิม · เบอร์ 8', exact: true }).click();
-          await expect(page.locator('dialog[open]')).toHaveCount(1);
           await expect(page.locator('dialog[open]')).toContainText('บดเบอร์ 8');
           await screenshot(page, `${name}-blend`);
-          await confirmQuantity(page, 2, '#scan');
-          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(2);
+          await confirmQuantity(page, 1, '#scan');
+          // ชุดผสมชุดเดียวกันนี้รับเบอร์ที่สามได้ โดยไม่แตกเป็นชุดใหม่ให้เอง
+          await scan(page, '#scan', product.barcode); await page.locator('#grind-select').selectOption(grinds[0].id);
+          await confirmQuantity(page, 1, '#scan');
+          await expect(page.locator('.data-table tbody tr.group-band')).toHaveCount(4);
           await expect(page.locator('.data-table tbody tr.group-band.is-blend')).toHaveCount(1);
+          await expect(page.locator('.data-table tbody tr.group-band').last()).toContainText('บดคละเบอร์ 8, 6');
           await page.locator('#order-note').fill('  ลูกค้าขอบดหยาบกว่าปกติ  ');
           await screenshot(page, `${name}-draft`); assert.equal(posts.length, 0, 'modal Enter must not auto-submit order');
-          await page.getByRole('button', { name: 'ยืนยัน 10 ถุง · F10', exact: true }).click();
+          await page.getByRole('button', { name: 'ยืนยัน 12 ถุง · F10', exact: true }).click();
           await expect(page.locator('.data-table tbody tr:not(.group-band)')).toHaveCount(0);
           assert.equal(posts.length, 1); assert.equal(posts[0].body.source, 'COUNTER');
-          assert.deepEqual(posts[0].body.lines.map(line => line.quantity), [4, 3, 1, 2]);
+          assert.deepEqual(posts[0].body.lines.map(line => line.quantity), [4, 3, 1, 2, 1, 1]);
           assert.equal(posts[0].body.note,'ลูกค้าขอบดหยาบกว่าปกติ','note is trimmed before it leaves the counter');
           const groupIds = posts[0].body.lines.map(line => line.blendGroupId);
-          assert.equal(new Set(groupIds).size, 2, 'two sets, each holding two lines');
-          assert.equal(groupIds[0], groupIds[1], 'two grinds stay inside set one');
-          assert.equal(groupIds[2], groupIds[3], 'set two keeps both of its SKUs');
-          assert.notEqual(groupIds[1], groupIds[2], 'sets leave the counter in order, so set numbers match the packing room');
-          assert.deepEqual(posts[0].body.lines.map(line => line.grindId), [grinds[1].id, grinds[2].id, grinds[1].id, grinds[1].id]);
+          assert.equal(new Set(groupIds).size, 4, 'three single-grind sets plus one blend set');
+          assert.equal(new Set(groupIds.slice(3)).size, 1, 'the blend set holds two SKUs and three lines');
+          assert.notEqual(groupIds[2], groupIds[3], 'sets leave the counter in order, so set numbers match the packing room');
+          assert.deepEqual(posts[0].body.lines.map(line => line.grindId), [grinds[1].id, grinds[2].id, grinds[1].id, grinds[1].id, grinds[1].id, grinds[0].id]);
           assert.equal(posts[0].body.lines[1].grindId, grinds[2].id); assert.equal(posts[0].body.lines[1].grindBarcode, null);
           assert.deepEqual(await page.evaluate(() => window.__routerPushes), []);
           assert.ok(currentJobs.every(job => job.status === 'QUEUED'));
