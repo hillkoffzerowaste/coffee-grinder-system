@@ -230,7 +230,7 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
     onCancel?.();
   }
 
-  function addLine(quantity: number, completeOrder = false) {
+  function addLine(quantity: number) {
     if (!quantityActive.current || operation.current || awaitingRetry || recoveryRequired || !product || quantity < 1 || quantity > 99 || !Number.isInteger(quantity)) return;
     if (source === "PACKING_MANUAL" && !grinderUserId) { setQuantityError("กรุณาเลือกผู้แพ็ค/ผู้บดก่อนยืนยัน"); return; }
     const lineGrind = mode === "GROUND" ? grind : null;
@@ -253,7 +253,6 @@ export function CounterWorkspace({ profile, source = "COUNTER", embedded, onComp
       : [...groups, { id: line.blendGroupId, mode, grind: lineGrind, lines: [line] }];
     commitGroups(nextGroups);
     resetCurrent();
-    if (completeOrder) void executeOrder(flattenGroups(nextGroups));
   }
 
   const executeOrder = useCallback(async (snapshot: BlendDraftLine[]) => {
