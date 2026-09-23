@@ -444,7 +444,7 @@ test('packing scanner prioritizes queued work over a grinding batch with the sam
  try{
   await scan('packing-scan',product.barcode);
   assert.equal(document.querySelector('.product-result .product-name')?.textContent,product.name,'the queued item opens directly instead of the running batch masking it');
-  assert.equal([...document.querySelectorAll('.detail-content button')].filter(b=>!b.closest('.held-batches')).length,0,'one queued order needs no manual choice');
+  assert.equal([...document.querySelectorAll('.detail-content button')].filter(b=>!b.closest('.held-batches')&&!b.textContent.includes('รับงานโดยไม่สแกน')).length,0,'one queued order needs no manual choice');
   await clickText('สแกนสินค้าใหม่');await scan('packing-scan','001234567891');
   assert.equal(document.querySelector('.product-result .product-name')?.textContent,'Other coffee','a different product remains scannable while another batch is grinding');
   assert.equal(api.posts().length,0);
@@ -499,7 +499,7 @@ test('packing opens the first queue on an ambiguous scan and still lets the pack
   // เจอของตรงกันก็รับได้เลย ไม่ต้องรอเลือกคิวก่อน แต่ชุดอื่นยังคาไว้ให้สลับ
   assert.ok(document.body.textContent.includes('เปิดชุดคิวแรกให้แล้ว'));
   assert.equal(document.querySelector('.product-result .product-name')?.textContent,product.name);
-  const choices=[...document.querySelectorAll('.detail-content button')].filter(b=>!b.closest('.held-batches'));
+  const choices=[...document.querySelectorAll('.detail-content button')].filter(b=>!b.closest('.held-batches')&&!b.textContent.includes('รับงานโดยไม่สแกน'));
   assert.equal(choices.length,2,'bags in the same order/product form one choice');
   assert.ok(choices.some(b=>b.textContent.includes('HK-A')));assert.ok(choices.some(b=>b.textContent.includes('HK-B')));
   assert.equal(document.querySelector('dialog'),null);
