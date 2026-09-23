@@ -1,0 +1,11 @@
+{
+  "apphosting": [
+    {
+      "backendId": "coffee-grinder",
+      "rootDir": ".",
+      "ignore": [
+        "firebase-debug.log"
+      ]
+    }
+  ]
+}

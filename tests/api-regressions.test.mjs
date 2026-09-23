@@ -23,6 +23,17 @@ test('cross-site mutation requests including login and logout are rejected',()=>
   assert.equal(isAllowedMutation(request({'sec-fetch-site':'cross-site'})),false);
   assert.equal(isAllowedMutation(request({origin:'null'})),false);
 });
+
+test('configured App Hosting public origin is allowed when the platform request URL is internal',()=>{
+ const previous=process.env.APP_PUBLIC_ORIGIN;
+ process.env.APP_PUBLIC_ORIGIN='https://coffee-grinder--esg-hillkoff.us-east4.hosted.app';
+ try {
+  const request=new Request('https://internal-app-hosting-service/api/auth/login',{method:'POST',headers:{origin:process.env.APP_PUBLIC_ORIGIN,'sec-fetch-site':'same-origin'}});
+  assert.equal(isAllowedMutation(request),true);
+ } finally {
+  if(previous===undefined)delete process.env.APP_PUBLIC_ORIGIN; else process.env.APP_PUBLIC_ORIGIN=previous;
+ }
+});
 test('malformed successful HTTP response is not reported as saved; preserve Headers',async()=>{
   const originalFetch=globalThis.fetch;
   try {

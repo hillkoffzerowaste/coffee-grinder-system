@@ -1,0 +1,82 @@
+runConfig:
+  minInstances: 0
+  maxInstances: 3
+  memoryMiB: 512
+
+env:
+  - variable: APP_PUBLIC_ORIGIN
+    value: https://coffee-grinder--esg-hillkoff.us-east4.hosted.app
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_USER
+    secret: POSTGRES_USER
+    availability:
+      - RUNTIME
+  - variable: NEON_AUTH_BASE_URL
+    secret: NEON_AUTH_BASE_URL
+    availability:
+      - RUNTIME
+  - variable: PGPASSWORD
+    secret: PGPASSWORD
+    availability:
+      - RUNTIME
+  - variable: NEON_PROJECT_ID
+    secret: NEON_PROJECT_ID
+    availability:
+      - RUNTIME
+  - variable: PGUSER
+    secret: PGUSER
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_DATABASE
+    secret: POSTGRES_DATABASE
+    availability:
+      - RUNTIME
+  - variable: VITE_NEON_AUTH_URL
+    secret: VITE_NEON_AUTH_URL
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_HOST
+    secret: POSTGRES_HOST
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_URL_NO_SSL
+    secret: POSTGRES_URL_NO_SSL
+    availability:
+      - RUNTIME
+  - variable: PGHOST_UNPOOLED
+    secret: PGHOST_UNPOOLED
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_URL
+    secret: POSTGRES_URL
+    availability:
+      - RUNTIME
+  - variable: PGDATABASE
+    secret: PGDATABASE
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_PASSWORD
+    secret: POSTGRES_PASSWORD
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_PRISMA_URL
+    secret: POSTGRES_PRISMA_URL
+    availability:
+      - RUNTIME
+  - variable: DATABASE_URL_UNPOOLED
+    secret: DATABASE_URL_UNPOOLED
+    availability:
+      - RUNTIME
+  - variable: DATABASE_URL
+    secret: DATABASE_URL
+    availability:
+      - RUNTIME
+  - variable: PGHOST
+    secret: PGHOST
+    availability:
+      - RUNTIME
+  - variable: POSTGRES_URL_NON_POOLING
+    secret: POSTGRES_URL_NON_POOLING
+    availability:
+      - RUNTIME
