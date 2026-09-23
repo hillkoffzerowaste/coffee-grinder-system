@@ -175,7 +175,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
  }
  function start(quantity:number){
   if(pendingRef.current){void execute(pendingRef.current);return;}
-  if(!context||!grinderId||(context.process_mode!=="WHOLE_BEAN"&&!grind)){setError("เลือกคนบดก่อนยืนยัน");return;}
+  if(!context||!grinderId||(context.process_mode!=="WHOLE_BEAN"&&!grind)){setError("เลือกผู้แพ็ค/ผู้บดก่อนยืนยัน");return;}
   const body=JSON.stringify({clientRequestId:crypto.randomUUID(),orderId:context.order_id,productBarcode:context.product_barcode_snapshot,blendGroupNo:context.blend_group_no,grindId:grind?.id??null,quantity,grinderUserId:grinderId});
   if(!batchStartSchema.safeParse(JSON.parse(body)).success||quantity>available.length){setError("จำนวนเกินงานที่ยังรอรับ หรือข้อมูลไม่ถูกต้อง");return;}
   void execute({path:"/api/jobs/start",body,description:`${orderNo(context)} · ${context.product_name_snapshot} · ${context.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์ ${grind?.grind_value}`} · ${quantity} ถุง`});
@@ -242,9 +242,8 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    <small>รอรับ {queuedCount} ถุง · ถืออยู่ {heldBatches.length} ชุด · เสียงเตือนระดับ 100% ดังซ้ำทุก 3 วินาทีจนงานรอรับเหลือ 0 ถุง</small>
   </div></>}</aside>
     {(grind||wholeBeanReady)&&context&&<QuantityDialog title={context.process_mode==="WHOLE_BEAN"?"รับงานเมล็ด":"รับงานเพื่อเริ่มบด"} description={`${orderNo(context)} · ${context.product_name_snapshot} · ${context.size_grams_snapshot} g · ${context.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์บด ${grind?.grind_value}`}`} max={pending?99:Math.min(99,available.length)} locked={!!pending} busy={busy} error={error} onConfirm={start} onCancel={()=>{if(pendingRef.current){setError("ต้องยืนยันรายการค้างก่อน");return;}setGrind(null);setWholeBeanReady(false);setError("");refocus();}}>
-    <div className="field"><label htmlFor="grinder">ชื่อผู้แพ็ค / ผู้รับงาน</label><select id="grinder" className="select" required disabled={busy||!!pending} value={grinderId} onChange={e=>setGrinderId(e.target.value)}><option value="">เลือกชื่อผู้แพ็ค</option>{grinders.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
-   <div className="field"><label htmlFor="grinder">คนบด</label><select id="grinder" className="select" required disabled={busy||!!pending} value={grinderId} onChange={e=>setGrinderId(e.target.value)}><option value="">เลือกคนบด</option>{grinders.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
-   {pending&&<div className="notice">ยืนยันซ้ำด้วยจำนวนและคนบดเดิมเท่านั้น: {pending.description}</div>}
+    <div className="field"><label htmlFor="grinder">ผู้แพ็ค/ผู้บด</label><select id="grinder" className="select" required disabled={busy||!!pending} value={grinderId} onChange={e=>setGrinderId(e.target.value)}><option value="">เลือกผู้แพ็ค/ผู้บด</option>{grinders.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
+   {pending&&<div className="notice">ยืนยันซ้ำด้วยจำนวนและผู้แพ็ค/ผู้บดเดิมเท่านั้น: {pending.description}</div>}
   </QuantityDialog>}
  </main></div>;
 }

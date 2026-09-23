@@ -736,8 +736,14 @@ test('counter and manual orders retain identical recovery requests for malformed
   try{
    await scan('scan',product.barcode);await scan('scan',grind.barcode);
    if(source==='PACKING_MANUAL')await select('manual-grinder',profile.id);
-   await submitQuantity();
-   if(source==='COUNTER')await clickText('ยืนยัน 1 ถุง');
+   if(source==='PACKING_MANUAL'){
+     assert.equal([...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='ยืนยันออเดอร์ทั้งหมด'),false);
+     await clickText('เพิ่มรายการถัดไป');
+     await clickText('ยืนยัน 1 ถุง · F10');
+   } else {
+     await submitQuantity();
+     await clickText('ยืนยัน 1 ถุง');
+    }
    assert.equal(calls.length,1);
    const original=calls[0];assert.equal(JSON.parse(original).source,source);
    if(source==='PACKING_MANUAL')assert.equal(JSON.parse(original).grinderUserId,profile.id);

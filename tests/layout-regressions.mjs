@@ -62,9 +62,9 @@ async function modal(page, name) {
   await expect(page.locator('#quantity')).toBeFocused();
   await screenshot(page, `${name}-modal`);
 }
-async function invalidQuantity(page, value, flag) {
+async function invalidQuantity(page, value, flag, action = 'confirm') {
   await page.locator('#quantity').fill(value);
-  await page.locator('button[name="quantity-action"][value="confirm"]').click();
+  await page.locator(`button[name="quantity-action"][value="${action}"]`).click();
   await expect(page.locator('dialog[open]')).toBeVisible();
   assert.equal(await page.locator('#quantity').evaluate((input, flag) => input.validity[flag], flag), true);
 }
@@ -152,7 +152,8 @@ try {
         await productAboveScanner(page, '#scan'); await screenshot(page, `${name}-product`);
         await scan(page, '#scan', grinds[1].barcode); await modal(page, name);
         if (station === 'packingmanual') await page.locator('#manual-grinder').selectOption(grinderId);
-        await invalidQuantity(page, '0', 'rangeUnderflow'); await invalidQuantity(page, '100', 'rangeOverflow');
+        const quantityAction = station === 'packingmanual' ? 'add-another' : 'confirm';
+        await invalidQuantity(page, '0', 'rangeUnderflow', quantityAction); await invalidQuantity(page, '100', 'rangeOverflow', quantityAction);
         await page.keyboard.press('F10'); assert.equal(posts.length, 0, 'invalid quantity and modal F10 cannot post');
         await page.keyboard.press('Escape');
         await expect(page.locator('dialog[open]')).toHaveCount(0); await expect(page.locator('#scan')).toBeFocused();
@@ -230,7 +231,10 @@ try {
           await page.getByRole('button', { name: 'เบอร์ 10', exact: true }).click();await modal(page, `${name}-click`);
           await expect(page.locator('#manual-grinder')).toHaveValue(grinderId);
           await page.locator('#quantity').fill('2');
-          await page.getByRole('button', { name: 'ยืนยันออเดอร์ทั้งหมด', exact: true }).click();
+          await expect(page.getByRole('button', { name: 'ยืนยันออเดอร์ทั้งหมด', exact: true })).toHaveCount(0);
+          await page.getByRole('button', { name: 'เพิ่มรายการถัดไป', exact: true }).click();
+          await expect(page.locator('dialog[open]')).toHaveCount(0);
+          await page.getByRole('button', { name: 'ยืนยัน 3 ถุง · F10', exact: true }).click();
           await expect(page.getByTestId('job-action')).toBeEnabled();
           assert.equal(posts.length, 1); assert.equal(posts[0].path, '/api/orders');
           assert.equal(posts[0].body.source, 'PACKING_MANUAL'); assert.equal(posts[0].body.grinderUserId, grinderId);
@@ -288,6 +292,10 @@ try {
         await jobResult.click();
         await productAboveScanner(page, '#packing-scan'); await screenshot(page, `${name}-product`);
         await scan(page, '#packing-scan', grinds[1].barcode); await modal(page, name);
+        await expect(page.locator('#grinder')).toHaveCount(1);
+        await expect(page.getByLabel('ผู้แพ็ค/ผู้บด', { exact: true })).toHaveCount(1);
+        await expect(page.getByLabel('ชื่อผู้แพ็ค / ผู้รับงาน', { exact: true })).toHaveCount(0);
+        await expect(page.getByLabel('คนบด', { exact: true })).toHaveCount(0);
         await page.locator('#grinder').selectOption(grinderId);
         await invalidQuantity(page, '0', 'rangeUnderflow');
         // ชุดผสมมี 3 ถุงก็จริง แต่เป็น SKU ของงานนี้แค่ 2 จำนวนสูงสุดต้องนับเฉพาะ SKU ที่เลือก
