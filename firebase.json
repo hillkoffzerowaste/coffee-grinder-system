@@ -5,7 +5,8 @@
       "rootDir": ".",
       "ignore": [
         "firebase-debug.log"
-      ]
+      ],
+      "alwaysDeployFromSource": true
     }
   ]
 }
