@@ -11,7 +11,7 @@ test('order list SQL separates active/history before pagination and reports queu
  try{
   // ยึดสคีมาจริงจาก migration ไม่ประกาศตารางเอง fixture จะได้ไม่ drift จาก production
   for(const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
-    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds']){
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds','012_require_complete_scan_batch']){
    await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(/\r\n/g,'\n'));
   }
   const owner=randomUUID();
@@ -61,7 +61,7 @@ test('database migrations and operational invariants', async (t) => {
   t.after(() => db.close());
   // ไล่ทุก migration ให้ตรงกับ production ไม่ใช่หยุดที่ 004 แล้วยืนยัน invariant ของสคีมาที่เลิกใช้แล้ว
   for (const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
-    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds']) {
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds','012_require_complete_scan_batch']) {
     await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(CRLF,LF));
   }
   await db.exec('set search_path=coffee,pg_catalog');
@@ -130,13 +130,15 @@ test('database migrations and operational invariants', async (t) => {
     await assert.rejects(transition(bags[0].id,'QUEUED','CLAIMED'),/FORBIDDEN/);
   });
   await t.test('batch start claims the earliest bag, and completion checks status and ownership', async () => {
-    const started = await startBatch(order.id,1);
-    assert.deepEqual(started.bag_ids,[bags[0].id],'start takes the earliest queued bag of the order');
-    await assert.rejects(transition(bags[0].id,'QUEUED','COMPLETED'),/Status changed/);
+    const singleOrder = await create(randomUUID(),[{...lines[0],quantity:1}]);
+    const [singleBag] = (await db.query('select * from bags where order_id=$1 order by queue_seq',[singleOrder.id])).rows;
+    const started = await startBatch(singleOrder.id,1);
+    assert.deepEqual(started.bag_ids,[singleBag.id],'start takes the only queued bag of the order');
+    await assert.rejects(transition(singleBag.id,'QUEUED','COMPLETED'),/Status changed/);
     await as(other);
-    await assert.rejects(transition(bags[0].id,'GRINDING','COMPLETED'),/owned/);
+    await assert.rejects(transition(singleBag.id,'GRINDING','COMPLETED'),/owned/);
     await as(packer);
-    const completed = await transition(bags[0].id,'GRINDING','COMPLETED');
+    const completed = await transition(singleBag.id,'GRINDING','COMPLETED');
     assert.equal(completed.status,'COMPLETED');
     assert.ok(completed.ground_at);
     assert.ok(completed.completed_at);
@@ -149,10 +151,11 @@ test('database migrations and operational invariants', async (t) => {
   await t.test('new lifecycle rejects legacy packaging transitions and completes its order', async () => {
     await as(packer);
     await assert.rejects(transition(bags[1].id,'QUEUED','GROUND'),/Invalid transition/);
-    await startBatch(order.id,1);
+    await startBatch(order.id,2);
     await assert.rejects(transition(bags[1].id,'GRINDING','GROUND'),/Invalid transition/);
     await as(packer);
     await transition(bags[1].id,'GRINDING','COMPLETED');
+    await transition(bags[0].id,'GRINDING','COMPLETED');
     assert.equal((await db.query('select status from orders where id=$1',[order.id])).rows[0].status,'COMPLETED');
   });
   await t.test('NULL expected status cannot bypass optimistic concurrency', async () => {
@@ -192,7 +195,7 @@ test('database migrations and operational invariants', async (t) => {
     await assert.rejects(db.exec("update bags set status='COMPLETED'"),/permission denied/);
     assert.equal((await db.query('select * from orders')).rows.length,0);
     await as(packer);
-    assert.equal((await db.query('select * from orders')).rows.length,3);
+    assert.equal((await db.query('select * from orders')).rows.length,4);
     assert.equal((await db.query('select * from audit_log')).rows.length,0);
     await as(admin);
     assert.ok((await db.query('select * from audit_log')).rows.length > 0);

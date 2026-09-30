@@ -20,7 +20,7 @@ SQL transactions use transaction-local identity and role, compatible with Neon p
 ## Operational guarantees and limits
 
 - Numeric barcode strings preserve leading zeros. SKU is separate from barcode.
-- Scan product → scan grind → quantity (default 1) → confirm. No brewing method/reason fields.
+- Scan product → scan grind → select exactly all matching bags shown for that work set → confirm. Partial quantities are rejected. No brewing method/reason fields.
 - Duplicate confirmation/network retry uses an immutable idempotency key; one job per bag.
 - FIFO, row locking, expected-state checks and operator ownership guard transitions.
 - Packing refreshes via HTTP polling.

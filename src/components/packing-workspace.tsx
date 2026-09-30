@@ -177,7 +177,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
   if(pendingRef.current){void execute(pendingRef.current);return;}
   if(!context||!grinderId||(context.process_mode!=="WHOLE_BEAN"&&!grind)){setError("เลือกผู้แพ็ค/ผู้บดก่อนยืนยัน");return;}
   const body=JSON.stringify({clientRequestId:crypto.randomUUID(),orderId:context.order_id,productBarcode:context.product_barcode_snapshot,blendGroupNo:context.blend_group_no,grindId:grind?.id??null,quantity,grinderUserId:grinderId});
-  if(!batchStartSchema.safeParse(JSON.parse(body)).success||quantity>available.length){setError("จำนวนเกินงานที่ยังรอรับ หรือข้อมูลไม่ถูกต้อง");return;}
+  if(!batchStartSchema.safeParse(JSON.parse(body)).success||quantity!==available.length){setError(`ต้องรับงานให้ครบ ${available.length} ถุงที่ตรงกันเท่านั้น`);return;}
   void execute({path:"/api/jobs/start",body,description:`${orderNo(context)} · ${context.product_name_snapshot} · ${context.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์ ${grind?.grind_value}`} · ${quantity} ถุง`});
  }
  function receiveWithoutScan(){
@@ -244,7 +244,7 @@ export function PackingWorkspace({profile,initialManual=false,uiConfig}:{profile
    {batchJobs.length>0&&!canCompleteBatch&&<small>ผู้รับงานชุดนี้ต้องเป็นผู้ยืนยันเสร็จสิ้น</small>}
    <small>รอรับ {queuedCount} ถุง · ถืออยู่ {heldBatches.length} ชุด · เสียงเตือนระดับ 100% ดังซ้ำทุก 3 วินาทีจนงานรอรับเหลือ 0 ถุง</small>
   </div></>}</aside>
-    {(grind||wholeBeanReady)&&context&&<QuantityDialog title={context.process_mode==="WHOLE_BEAN"?"รับงานเมล็ด":"รับงานเพื่อเริ่มบด"} description={`${orderNo(context)} · ${context.product_name_snapshot} · ${context.size_grams_snapshot} g · ${context.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์บด ${grind?.grind_value}`}`} max={pending?99:Math.min(99,available.length)} locked={!!pending} busy={busy} error={error} onConfirm={start} onCancel={()=>{if(pendingRef.current){setError("ต้องยืนยันรายการค้างก่อน");return;}setGrind(null);setWholeBeanReady(false);setError("");refocus();}}>
+    {(grind||wholeBeanReady)&&context&&<QuantityDialog title={context.process_mode==="WHOLE_BEAN"?"รับงานเมล็ด":"รับงานเพื่อเริ่มบด"} description={`${orderNo(context)} · ${context.product_name_snapshot} · ${context.size_grams_snapshot} g · ${context.process_mode==="WHOLE_BEAN"?"เมล็ด":`เบอร์บด ${grind?.grind_value}`}`} min={pending?1:available.length} max={pending?99:available.length} initial={pending?1:available.length} locked={!!pending} busy={busy} error={error} onConfirm={start} onCancel={()=>{if(pendingRef.current){setError("ต้องยืนยันรายการค้างก่อน");return;}setGrind(null);setWholeBeanReady(false);setError("");refocus();}}>
     <div className="field"><label htmlFor="grinder">ผู้แพ็ค/ผู้บด</label><select id="grinder" className="select" required disabled={busy||!!pending} value={grinderId} onChange={e=>setGrinderId(e.target.value)}><option value="">เลือกผู้แพ็ค/ผู้บด</option>{grinders.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
    {pending&&<div className="notice">ยืนยันซ้ำด้วยจำนวนและผู้แพ็ค/ผู้บดเดิมเท่านั้น: {pending.description}</div>}
   </QuantityDialog>}

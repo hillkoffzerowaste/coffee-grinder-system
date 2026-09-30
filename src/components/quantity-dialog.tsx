@@ -7,6 +7,7 @@ import "./quantity-dialog.css";
 type QuantityDialogProps = {
   title: string;
   description: string;
+  min?: number;
   max: number;
   initial?: number;
   busy?: boolean;
@@ -22,7 +23,7 @@ type QuantityDialogProps = {
 
 // The parent mounts this only while open and restores scanner focus on dismissal.
 export function QuantityDialog({
-  title, description, max, initial = 1, busy = false, locked = false, error,
+  title, description, min = 1, max, initial = min, busy = false, locked = false, error,
   onConfirm, onAddAnother, hideConfirm = false, confirmLabel = "ยืนยันจำนวน", onCancel, children,
 }: QuantityDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -59,7 +60,7 @@ export function QuantityDialog({
         event.preventDefault();
         if (busy) return;
         const value = inputRef.current?.valueAsNumber ?? Number.NaN;
-        if (!Number.isInteger(value) || value < 1 || (!locked && !(value <= max))) return;
+        if (!Number.isInteger(value) || value < min || (!locked && !(value <= max))) return;
         if (!event.currentTarget.reportValidity()) return;
         const submitter = (event.nativeEvent as SubmitEvent).submitter;
         if (hideConfirm || submitter?.getAttribute("value") === "add-another") {
@@ -74,7 +75,7 @@ export function QuantityDialog({
               id="quantity"
               name="quantity"
               type="number"
-              min={1}
+              min={min}
               max={max}
               step={1}
               required
@@ -84,7 +85,7 @@ export function QuantityDialog({
               className="quantity-dialog__input"
               aria-describedby={`${id}-range${error ? ` ${id}-error` : ""}`}
             />
-            <small id={`${id}-range`} className="quantity-dialog__range">จำนวนเต็ม 1–{max} ถุง</small>
+            <small id={`${id}-range`} className="quantity-dialog__range">{min === max ? `ต้องเลือกให้ครบ ${max} ถุง` : `จำนวนเต็ม ${min}–${max} ถุง`}</small>
           </div>
           {children != null && <div className="quantity-dialog__children">{children}</div>}
         </fieldset>

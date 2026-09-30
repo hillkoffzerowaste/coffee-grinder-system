@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql','011_blend_group_mixed_grinds.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql','011_blend_group_mixed_grinds.sql','012_require_complete_scan_batch.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -74,23 +74,23 @@ test('scan batch migration and RPC contracts', async (t) => {
     const order = await create([...lines(3),{...lines(1)[0],clientLineId:'eight',grindId:grind8,grindBarcode:'990008'}]);
     const before = await bags(order.id);
     await assert.rejects(transition(before[0].id,'QUEUED','CLAIMED',packer),/Invalid transition/);
-    const result = await start(order.id);
+    const result = await start(order.id,{quantity:3});
     assert.deepEqual(Object.keys(result).sort(),['bag_ids','batch_id','order_id','quantity']);
-    assert.deepEqual(result.bag_ids,before.slice(0,2).map(b => b.id));
-    assert.equal(result.order_id,order.id); assert.equal(result.quantity,2);
+    assert.deepEqual(result.bag_ids,before.slice(0,3).map(b => b.id));
+    assert.equal(result.order_id,order.id); assert.equal(result.quantity,3);
     assert.match(result.batch_id,/^[0-9a-f-]{36}$/);
     const after = await bags(order.id);
-    for (const b of after.slice(0,2)) {
+    for (const b of after.slice(0,3)) {
       assert.equal(b.status,'GRINDING'); assert.equal(b.claimed_by,packer);
       assert.equal(b.grinder_user_id,grinder); assert.equal(b.grinder_name_snapshot,'Batch grinder');
       assert.equal(b.grinding_batch_id,result.batch_id); assert.equal(b.version,2);
       assert.ok(b.started_at); assert.equal(b.lease_until,null);
     }
-    assert.deepEqual(after.slice(2),before.slice(2));
+    assert.deepEqual(after.slice(3),before.slice(3));
     assert.equal((await bags(older.id))[0].status,'QUEUED');
     const events = await query("select from_status,to_status from coffee.job_events where bag_id=any($1::uuid[]) and to_status='GRINDING'",[result.bag_ids]);
-    assert.equal(events.length,2); assert.ok(events.every(e => e.from_status==='QUEUED'));
-    assert.equal((await query("select * from coffee.outbox_events where payload->>'batch_id'=$1",[result.batch_id])).length,2);
+    assert.equal(events.length,3); assert.ok(events.every(e => e.from_status==='QUEUED'));
+    assert.equal((await query("select * from coffee.outbox_events where payload->>'batch_id'=$1",[result.batch_id])).length,3);
     assert.equal((await query("select * from coffee.audit_log where details->>'batch_id'=$1",[result.batch_id])).length,1);
     assert.equal((await query('select * from coffee.print_jobs where bag_id=any($1::uuid[])',[before.map(b => b.id)])).length,4);
   });
@@ -119,9 +119,9 @@ test('scan batch migration and RPC contracts', async (t) => {
     const result = await create(payload);
     const created = await bags(result.id);
     const groupOne = created.filter(b=>b.blend_group_no===1);
-    const started = await start(result.id,{quantity:1,blendGroupNo:2});
-    assert.deepEqual(started.bag_ids,[created.find(b=>b.blend_group_no===2).id]);
-    assert.equal((await bags(result.id)).find(b=>b.id===started.bag_ids[0]).blend_group_no,2);
+    const started = await start(result.id,{quantity:3,blendGroupNo:2});
+    assert.deepEqual(started.bag_ids,created.filter(b=>b.blend_group_no===2).map(b=>b.id));
+    assert.equal((await bags(result.id)).filter(b=>b.status==='GRINDING' && b.blend_group_no===2).length,3);
     assert.equal((await bags(result.id)).filter(b=>b.status==='QUEUED' && b.blend_group_no===1).length,2);
     assert.equal(groupOne.length,2);
   });
@@ -222,6 +222,7 @@ test('scan batch migration and RPC contracts', async (t) => {
   await t.test('invalid quantities, barcode, grind, grinder and excess requests have no effects', async () => {
     const order = await create(lines(2));
     for (const quantity of [null,0,-1,501]) await rejectsUnchanged(() => start(order.id,{quantity}),/Invalid quantity/);
+    await rejectsUnchanged(() => start(order.id,{quantity:1}),/Insufficient/);
     await rejectsUnchanged(() => start(order.id,{quantity:3}),/Insufficient/);
     for (const value of [null,'123','RB-HK-TEST']) await rejectsUnchanged(() => start(order.id,{barcode:value}),/Invalid product barcode/);
     await rejectsUnchanged(() => start(order.id,{barcode:'999999'}),/Insufficient/);
@@ -251,7 +252,7 @@ test('scan batch migration and RPC contracts', async (t) => {
   });
 
   await t.test('start receipt preserves result and rejects every altered fingerprint and actor', async () => {
-    const order = await create(lines(5)), key = randomUUID();
+    const order = await create(lines(2)), key = randomUUID();
     const result = await start(order.id,{key});
     const before = await snapshot();
     assert.deepEqual(await start(order.id,{key}),result);
@@ -262,7 +263,8 @@ test('scan batch migration and RPC contracts', async (t) => {
     await rejectsUnchanged(() => start(randomUUID(),{key}),/Idempotency/);
     await rejectsUnchanged(() => complete(result.batch_id,key),/Idempotency/);
     await rejectsUnchanged(() => manual(lines(),{key}),/Idempotency/);
-    const second = await start(order.id,{quantity:2});
+    const secondOrder = await create(lines(2));
+    const second = await start(secondOrder.id,{quantity:2});
     assert.equal(new Set([...result.bag_ids,...second.bag_ids]).size,4);
     await query('update coffee.grinder_users set active=false where id=$1',[grinder]);
     assert.deepEqual(await start(order.id,{key}),result,'replay is independent of subsequent catalog changes');
@@ -363,13 +365,17 @@ test('scan batch migration and RPC contracts', async (t) => {
   });
 
   await t.test('batch completion does not finish other batches or queued bags in same order', async () => {
-    const order = await create(lines(5));
-    const first = await start(order.id), second = await start(order.id);
+    const order = await create([
+      {...lines(2)[0],clientLineId:'six',blendGroupId:'six',mode:'GROUND'},
+      {...lines(3)[0],clientLineId:'eight',blendGroupId:'eight',mode:'GROUND',grindId:grind8,grindBarcode:'990008'},
+    ]);
+    const first = await start(order.id,{quantity:2,blendGroupNo:1});
+    const second = await start(order.id,{quantity:3,grind:grind8,blendGroupNo:2});
     await complete(first.batch_id);
-    assert.deepEqual((await bags(order.id)).map(b => b.status),['COMPLETED','COMPLETED','GRINDING','GRINDING','QUEUED']);
+    assert.deepEqual((await bags(order.id)).map(b => b.status),['COMPLETED','COMPLETED','GRINDING','GRINDING','GRINDING']);
     assert.equal((await query('select status from coffee.orders where id=$1',[order.id]))[0].status,'OPEN');
     await complete(second.batch_id);
-    assert.equal((await query('select status from coffee.orders where id=$1',[order.id]))[0].status,'OPEN');
+    assert.equal((await query('select status from coffee.orders where id=$1',[order.id]))[0].status,'COMPLETED');
   });
 
   await t.test('foreign key prevents mixing orders even through privileged writes', async () => {

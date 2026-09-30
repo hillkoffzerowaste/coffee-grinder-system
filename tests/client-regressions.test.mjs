@@ -420,6 +420,21 @@ test('packing queue shows one highlighted quantity for identical bags in the sam
  }finally{await unmount();}
 });
 
+test('packing rejects a quantity below every matching bag in the selected work set',async(t)=>{
+ const api=packingApi(t,[bag(),bag({queue_seq:2,bag_no:2}),bag({queue_seq:3,bag_no:3})]);
+ const unmount=await mount(PackingWorkspace);
+ try{
+  await scan('packing-scan',product.barcode);await scan('packing-scan',grind.barcode);await select('grinder',profile.id);
+  assert.equal(document.getElementById('quantity').min,'3');
+  assert.equal(document.getElementById('quantity').max,'3');
+  await input('quantity','2');await submitQuantity();
+  assert.equal(api.posts().length,0,'a partial matching quantity must not start a batch');
+  assert.ok(document.querySelector('dialog[open]'));
+  await input('quantity','3');await submitQuantity();
+  assert.equal(api.posts().length,1);
+ }finally{await unmount();}
+});
+
 test('packing warns and chimes softly when the batch it holds passes its SLA',async(t)=>{
  // 250 g ให้เป้า SLA 60 วินาที ชุดที่กดรับไว้ตั้งแต่ชั่วโมงก่อนจึงเกินแน่นอน
  const stale=new Date(Date.now()-3600000).toISOString();
