@@ -402,6 +402,24 @@ test('packing scans product, grind and quantity to start a batch and completes w
  }finally{await unmount();}
 });
 
+test('packing queue shows one highlighted quantity for identical bags in the same work set',async(t)=>{
+ const api=packingApi(t,Array.from({length:8},(_,index)=>bag({queue_seq:index+1,bag_no:index+1})));
+ const unmount=await mount(PackingWorkspace);
+ try{
+  const rows=document.querySelectorAll('.packing-queue .data-table tbody tr');
+  assert.equal(rows.length,1,'identical bags in one set must occupy one queue row');
+  const quantity=document.querySelector('.packing-quantity');
+  assert.equal(quantity?.textContent,'8 ถุง');
+  assert.ok(quantity?.classList.contains('flag-quantity'),'quantity needs a dedicated visual flag');
+  await scan('packing-scan',product.barcode);
+  await scan('packing-scan',grind.barcode);
+  assert.equal(document.getElementById('quantity').max,'8');
+  await input('quantity','8');await select('grinder',profile.id);await submitQuantity();
+  assert.equal(JSON.parse(api.posts()[0].body).quantity,8,'one first-bag scan can start every matching bag');
+  assert.equal(api.calls.filter(call=>new URL(call.url,'http://localhost').searchParams.has('scan')).length,1,'the packer does not need to scan every bag');
+ }finally{await unmount();}
+});
+
 test('packing warns and chimes softly when the batch it holds passes its SLA',async(t)=>{
  // 250 g ให้เป้า SLA 60 วินาที ชุดที่กดรับไว้ตั้งแต่ชั่วโมงก่อนจึงเกินแน่นอน
  const stale=new Date(Date.now()-3600000).toISOString();
