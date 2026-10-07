@@ -177,6 +177,10 @@ a { color: inherit; }
 .held-batches { display: flex; flex-direction: column; gap: .35rem; }
 .held-batch { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; justify-content: space-between; }
 .held-batch.is-focused { border-left: 4px solid var(--brand-strong); }
+.held-batch > .button { max-width: 100%; white-space: normal; text-align: left; }
+.held-subtasks { flex: 1 0 100%; min-width: 0; }
+.held-subtasks summary { color: var(--brand-strong); cursor: pointer; }
+.held-subtasks .button { margin: .35rem .35rem 0 0; white-space: normal; text-align: left; }
 .band-parts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .muted { font-weight: 400; color: var(--muted); }
 .packing-history { display: flex; flex-direction: column; gap: .55rem; min-height: 0; flex: 1; }
