@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql','011_blend_group_mixed_grinds.sql','012_require_complete_scan_batch.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql','011_blend_group_mixed_grinds.sql','012_require_complete_scan_batch.sql','013_start_blend_batch.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -45,6 +45,13 @@ test('scan batch migration and RPC contracts', async (t) => {
       options.quantity === undefined ? 2 : options.quantity,
       options.grinder === undefined ? grinder : options.grinder,
       options.blendGroupNo === undefined ? null : options.blendGroupNo,
+    ]);
+  const blendStart = (orderId, options = {}) => rpc(options.actor ?? packer,
+    'select coffee.start_blend_batch($1,$2,$3,$4,$5) result',[
+      options.key === undefined ? randomUUID() : options.key,orderId,
+      options.blendGroupNo === undefined ? 1 : options.blendGroupNo,
+      options.quantity === undefined ? 2 : options.quantity,
+      options.grinder === undefined ? grinder : options.grinder,
     ]);
   const manual = (payload = lines(), options = {}) => rpc(options.actor ?? packer,
     'select coffee.create_grinding_order($1,$2::jsonb,$3) result',[
@@ -110,6 +117,26 @@ test('scan batch migration and RPC contracts', async (t) => {
     assert.deepEqual(created.map(b=>b.product_barcode_snapshot),[barcode,barcode,barcodeB,barcodeB,barcodeB]);
     assert.ok(created.every(b=>b.process_mode==='GROUND' && b.grind_value_snapshot==='6'));
     assert.equal((await query('select count(*)::int as count from coffee.order_items where order_id=$1',[result.id]))[0].count,2);
+  });
+  await t.test('blend start receives every SKU and grind in one atomic batch', async () => {
+    const productC = (await query("insert into coffee.products(sku,name,size_grams) values ('BATCH-TEST-BLEND','Blend beans',250) returning id"))[0].id;
+    const barcodeC = '009876543210987654323';
+    await query('insert into coffee.product_barcodes(product_id,barcode) values ($1,$2)', [productC, barcodeC]);
+    const payload = [
+      {...lines(1)[0],clientLineId:'blend-start-a',blendGroupId:'blend-start',mode:'GROUND'},
+      {clientLineId:'blend-start-b',productId:productC,productBarcode:barcodeC,grindId:grind8,grindBarcode:'990008',blendGroupId:'blend-start',mode:'GROUND',quantity:1},
+    ];
+    const order = await create(payload);
+    const key = randomUUID();
+    const started = await blendStart(order.id,{key,quantity:2});
+    assert.equal(started.quantity,2);
+    assert.equal(started.blend_group_no,1);
+    assert.equal(new Set(started.bag_ids).size,2);
+    const updated = await bags(order.id);
+    assert.equal(new Set(updated.map(b=>b.grinding_batch_id)).size,1,'all blend members share one grinding batch');
+    assert.ok(updated.every(b=>b.status==='GRINDING'&&b.grinding_batch_id===started.batch_id));
+    assert.equal(new Set(updated.map(b=>b.grind_id)).size,2,'mixed grind members remain distinct inside the batch');
+    assert.deepEqual(await blendStart(order.id,{key,quantity:2}),started,'blend start is idempotent');
   });
   await t.test('scan start never combines identical SKU lines from different blend groups', async () => {
     const payload = [
@@ -428,6 +455,7 @@ test('scan batch migration and RPC contracts', async (t) => {
     try {
       for (const sql of [
         'select coffee.start_scan_batch(null,null,null,null,null,null,null)',
+        'select coffee.start_blend_batch(null,null,null,null,null)',
         'select coffee.create_grinding_order(null,null,null)',
         'select coffee.complete_scan_batch(null,null)',
       ]) await assert.rejects(query(sql),/permission denied/);

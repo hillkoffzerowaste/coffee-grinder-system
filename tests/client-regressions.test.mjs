@@ -109,6 +109,13 @@ function packingApi(t,jobs=[bag()]) {
     state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:id,grinder_name_snapshot:'Operator',started_at:startedAt}:j);
     return json({batch:{batch_id:id,bag_ids:selected.map(j=>j.id)}});
   };
+  state.commitBlendStart=body=>{
+    const selected=state.jobs.filter(j=>j.order_id===body.orderId&&j.blend_group_no===body.blendGroupNo&&(j.status==='QUEUED'||j.status==='CLAIMED')).slice(0,body.quantity);
+    assert.equal(selected.length,body.quantity,'mock has the requested blend bags');
+    const id=state.jobs.some(j=>j.grinding_batch_id===batchId)?secondBatchId:batchId;
+    state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:id,grinder_name_snapshot:'Operator',started_at:state.startedAt??new Date().toISOString()}:j);
+    return json({batch:{batch_id:id,bag_ids:selected.map(j=>j.id)}});
+  };
   t.mock.method(globalThis,'fetch',async(url,init)=>{
     const method=init?.method??'GET';state.calls.push({url,method,body:init?.body});
     if(method==='GET'){
@@ -126,6 +133,7 @@ function packingApi(t,jobs=[bag()]) {
       }
     }
     if(method==='POST'&&url==='/api/jobs/start')return state.start?state.start(init.body):state.commitStart(JSON.parse(init.body));
+    if(method==='POST'&&url==='/api/jobs/start-blend')return state.blendStart?state.blendStart(init.body):state.commitBlendStart(JSON.parse(init.body));
     if(method==='POST'&&url==='/api/jobs/complete'){
       if(state.complete)return state.complete(init.body);
       const body=JSON.parse(init.body),selected=state.jobs.filter(j=>j.grinding_batch_id===body.batchId);
@@ -417,6 +425,37 @@ test('packing queue shows one highlighted quantity for identical bags in the sam
   await input('quantity','8');await select('grinder',profile.id);await submitQuantity();
   assert.equal(JSON.parse(api.posts()[0].body).quantity,8,'one first-bag scan can start every matching bag');
   assert.equal(api.calls.filter(call=>new URL(call.url,'http://localhost').searchParams.has('scan')).length,1,'the packer does not need to scan every bag');
+}finally{await unmount();}
+});
+
+test('packing accepts a mixed coffee blend once for every SKU in the set',async(t)=>{
+ const second=bag({queue_seq:2,bag_no:2,sku_snapshot:'RB-HK-SECOND',product_name_snapshot:'Second coffee',product_barcode_snapshot:'001234567891',blend_group_no:1});
+ const first=bag({blend_group_no:1});
+ const api=packingApi(t,[first,second]);const unmount=await mount(PackingWorkspace);
+ try{
+  const rows=document.querySelectorAll('.packing-queue .data-table tbody tr');
+  assert.equal(rows.length,1,'all members of one blend group occupy one queue row');
+  assert.equal([...rows[0].querySelectorAll('button')].filter(button=>button.textContent.includes('รับงานทั้งชุด')).length,1);
+  await clickText('รับงานทั้งชุด');
+  assert.equal(document.querySelector('dialog[open]')?.textContent.includes('รับกาแฟผสมทั้งชุด'),true);
+  assert.equal(document.getElementById('quantity').max,'2');
+  await select('grinder',profile.id);await submitQuantity();
+  assert.equal(api.posts().length,1,'one confirmation creates one start request');
+  assert.equal(api.posts()[0].url,'/api/jobs/start-blend');
+  const body=JSON.parse(api.posts()[0].body);assert.deepEqual({orderId:body.orderId,blendGroupNo:body.blendGroupNo,quantity:body.quantity,grinderUserId:body.grinderUserId},{orderId,blendGroupNo:1,quantity:2,grinderUserId:profile.id});
+  assert.ok(api.jobs.every(j=>j.status==='GRINDING'&&j.grinding_batch_id===batchId),'all blend bags share the same batch');
+ }finally{await unmount();}
+});
+
+test('packing collapses legacy split batches from one blend group into one visible row',async(t)=>{
+ const first=bag({status:'GRINDING',claimed_by:profile.id,grinding_batch_id:batchId,blend_group_no:1});
+ const second=bag({queue_seq:2,bag_no:2,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:secondBatchId,blend_group_no:1,sku_snapshot:'RB-HK-SECOND',product_name_snapshot:'Second coffee',product_barcode_snapshot:'001234567891'});
+ const api=packingApi(t,[first,second]);const unmount=await mount(PackingWorkspace);
+ try{
+  assert.equal(document.querySelectorAll('.packing-queue .data-table tbody tr').length,1,'split batches must not render duplicate blend rows');
+  assert.equal([...document.querySelectorAll('.packing-queue .data-table tbody button')].filter(button=>button.textContent.includes('เปิดชุดงาน')).length,1);
+  assert.equal(document.body.textContent.includes('แยกตามสินค้าและเบอร์บด 2 งาน'),true,'the detail panel keeps the recovery path for old split batches');
+  assert.equal(api.posts().length,0);
  }finally{await unmount();}
 });
 
