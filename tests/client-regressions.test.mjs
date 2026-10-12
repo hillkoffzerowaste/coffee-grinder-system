@@ -267,7 +267,7 @@ test('order monitor shows queued wait summary and overdue warning',async()=>{
   assert.ok(document.body.textContent.includes('ค้างนานสุด 2 นาที'));
   assert.ok(document.body.textContent.includes('มี 1 ถุงรอรับเกิน 1 นาที'));
   assert.equal(document.querySelector('[role="alert"]')?.textContent.includes('เกิน 1 นาที'),true);
-  assert.ok(document.body.textContent.includes('SLA 1:30 / 2:00'));
+  assert.ok(document.body.textContent.includes('SLA 1:30 / 3:00'));
   assert.equal(document.querySelector('[role="alertdialog"]')?.textContent.includes('HK-001'),true);
   await clickText('รับทราบ');
   assert.equal(document.querySelector('[role="alertdialog"]'),null);
@@ -475,7 +475,7 @@ test('packing rejects a quantity below every matching bag in the selected work s
 });
 
 test('packing warns and chimes softly when the batch it holds passes its SLA',async(t)=>{
- // 250 g ให้เป้า SLA 60 วินาที ชุดที่กดรับไว้ตั้งแต่ชั่วโมงก่อนจึงเกินแน่นอน
+ // 250 g ให้เป้า SLA 90 วินาที ชุดที่กดรับไว้ตั้งแต่ชั่วโมงก่อนจึงเกินแน่นอน
  const stale=new Date(Date.now()-3600000).toISOString();
  const api=packingApi(t,[bag({created_at:stale}),bag({queue_seq:2,bag_no:2,created_at:stale})]);
  api.startedAt=stale;

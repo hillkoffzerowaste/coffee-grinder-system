@@ -2,12 +2,13 @@
 import {useEffect,useRef,useState} from "react";
 import {apiFetch} from "@/lib/api";
 import {OrderMonitor} from "@/components/order-monitor";
+import type {UiConfig} from "@/lib/ui-config";
 
 type Daily={day:string;bags:number;grams:number;orders:number;by_grinder:{name:string;bags:number}[]};
 // วันของห้องแพ็คคือวันตามเวลาไทย ไม่ใช่วันตามเครื่องผู้ใช้หรือ UTC
 const bangkokToday=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok"}).format(new Date());
 
-export function PackingHistory({revision}:{revision:number}){
+export function PackingHistory({revision,uiConfig}:{revision:number;uiConfig?:UiConfig}){
  const [day,setDay]=useState(bangkokToday);
  const [search,setSearch]=useState(""),[query,setQuery]=useState("");
  const [daily,setDaily]=useState<Daily|null>(null),[error,setError]=useState("");
@@ -46,6 +47,6 @@ export function PackingHistory({revision}:{revision:number}){
   {error&&<div className="notice error" role="alert">{error}</div>}
   {daily&&<div className="queue-summary" aria-label="สรุปของวัน"><strong>เสร็จ {daily.bags} ถุง</strong><span>{daily.orders} ออเดอร์</span><span>{(daily.grams/1000).toFixed(1)} กก.</span></div>}
   {daily&&daily.by_grinder.length>0&&<div className="row" aria-label="แยกตามคนบด">{daily.by_grinder.map(g=><span className="status" key={g.name}>{g.name} {g.bags} ถุง</span>)}</div>}
-  <OrderMonitor key={`${day}|${query}`} revision={revision} defaultView="history" day={day} query={query} embedded alerts={false} />
+  <OrderMonitor key={`${day}|${query}`} revision={revision} defaultView="history" day={day} query={query} embedded alerts={false} uiConfig={uiConfig} />
  </div>;
 }

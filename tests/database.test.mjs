@@ -11,7 +11,7 @@ test('order list SQL separates active/history before pagination and reports queu
  try{
   // ยึดสคีมาจริงจาก migration ไม่ประกาศตารางเอง fixture จะได้ไม่ drift จาก production
   for(const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
-    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds','012_require_complete_scan_batch','013_start_blend_batch']){
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds','012_require_complete_scan_batch','013_start_blend_batch','014_set_grinding_sla_three_minutes']){
    await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(/\r\n/g,'\n'));
   }
   const owner=randomUUID();
@@ -20,6 +20,18 @@ test('order list SQL separates active/history before pagination and reports queu
   await db.query(`insert into coffee.orders(client_request_id,request_payload,source,status,total_bags,created_by)
    select gen_random_uuid(),'[]'::jsonb,'COUNTER',case when n<=55 then 'OPEN' else 'COMPLETED' end,1,$1 from generate_series(1,110) n`,[owner]);
   const midOrder=(await db.query("select id from coffee.orders where status='OPEN' order by created_at desc,id desc limit 1")).rows[0].id;
+  const aheadOrder=(await db.query("select id from coffee.orders where status='OPEN' and id<>$1 order by created_at,id limit 1",[midOrder])).rows[0].id;
+  const aheadItem=(await db.query(`insert into coffee.order_items(order_id,product_id,grind_id,quantity,client_line_id,blend_group_id,blend_group_no,process_mode)
+   select $1,p.id,g.id,2,'ahead-line','ahead-group',1,'GROUND' from coffee.products p, coffee.grind_size_codes g
+   where p.size_grams>=200 and g.grind_value='6' limit 1 returning id`,[aheadOrder])).rows[0].id;
+  const aheadBatch=randomUUID();
+  await db.query(`insert into coffee.batch_requests(request_id,actor_id,kind,fingerprint,response,order_id,batch_id)
+   values (gen_random_uuid(),$1,'START','{}'::jsonb,'{}'::jsonb,$2,$3)`,[owner,aheadOrder,aheadBatch]);
+  await db.query(`insert into coffee.bags(order_id,order_item_id,product_id,grind_id,bag_no,status,created_at,
+    grinding_batch_id,blend_group_id,blend_group_no,process_mode,product_name_snapshot,sku_snapshot,size_grams_snapshot,product_barcode_snapshot,grind_value_snapshot)
+   select $1,$2,i.product_id,i.grind_id,n,case when n=1 then 'GRINDING' else 'QUEUED' end,now(),
+    case when n=1 then $3::uuid else null end,'ahead-group',1,'GROUND','Ahead beans','RB-AHEAD',case when n=1 then 500 else 250 end,'001234567891','6'
+    from coffee.order_items i, generate_series(1,2) n where i.id=$2`,[aheadOrder,aheadItem,aheadBatch]);
   const item=(await db.query(`insert into coffee.order_items(order_id,product_id,grind_id,quantity,client_line_id,blend_group_id,blend_group_no,process_mode)
    select $1,p.id,g.id,2,'line-1','g1',1,'GROUND' from coffee.products p, coffee.grind_size_codes g
    where p.size_grams>=200 and g.grind_value='6' limit 1 returning id`,[midOrder])).rows[0].id;
@@ -39,6 +51,7 @@ test('order list SQL separates active/history before pagination and reports queu
   assert.equal(history.length,51);assert.ok(history.every(o=>o.status==='COMPLETED'));
   assert.equal(active[0].overdue_queued_count,1);
   assert.equal(active[0].total_grams,500);
+  assert.equal(active[0].queue_ahead_grams,250,'a bag already being ground must not be counted as queue ahead');
   assert.ok(active[0].grinding_started_at);
   const second=(await db.query(sql,[false,50,null,null])).rows;
   assert.equal(second.length,5);
@@ -61,7 +74,7 @@ test('database migrations and operational invariants', async (t) => {
   t.after(() => db.close());
   // ไล่ทุก migration ให้ตรงกับ production ไม่ใช่หยุดที่ 004 แล้วยืนยัน invariant ของสคีมาที่เลิกใช้แล้ว
   for (const file of ['001_neon','002_manual_grinds','003_thai_catalog','004_complete_after_grinding','005_scan_batch_grinding',
-    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds','012_require_complete_scan_batch','013_start_blend_batch']) {
+    '006_admin_control_center','007_blend_groups','008_drop_legacy_start_scan_batch','009_grinding_requires_batch','010_order_notes','011_blend_group_mixed_grinds','012_require_complete_scan_batch','013_start_blend_batch','014_set_grinding_sla_three_minutes']) {
     await db.exec((await readFile(`database/migrations/${file}.sql`,'utf8')).replace(CRLF,LF));
   }
   await db.exec('set search_path=coffee,pg_catalog');

@@ -15,6 +15,6 @@ export const defaultUiConfig:UiConfig={
   menus:[{id:"counter",label:"หน้าร้าน",visible:true,order:0},{id:"packing",label:"ห้องแพ็ค",visible:true,order:1},{id:"admin",label:"Admin Console",visible:true,order:2}],
   layouts:{counter:{main:"left",detail:"right"},packing:{main:"left",detail:"right"}},
   sounds:{queue:"alert",overdue:"alert",sla:"pulse",volume:1},
-  operations:{slaGrams:500,slaSeconds:120,overdueSeconds:60},
+  operations:{slaGrams:500,slaSeconds:180,overdueSeconds:60},
 };
 export function parseUiConfig(value:unknown){return uiConfigSchema.safeParse(value);}

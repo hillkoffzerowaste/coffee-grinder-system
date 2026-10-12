@@ -133,10 +133,11 @@ test('the SLA chime is quieter and rarer than the queue alarm', () => {
 test('SLA turns danger exactly when the grinding target elapses', () => {
   const queuedAt = new Date('2026-09-08T00:00:00Z').toISOString();
   const at = seconds => orderSla({ totalGrams: 250, queuedAt, now: new Date(Date.parse(queuedAt) + seconds * 1000) });
-  assert.equal(at(1).targetSeconds, 60, '250 g targets one minute');
+  assert.equal(at(1).targetSeconds, 90, '250 g targets 90 seconds');
   assert.equal(at(30).tone, 'ok');
-  assert.equal(at(45).tone, 'warn');
-  assert.equal(at(59).tone, 'warn');
-  assert.equal(at(60).tone, 'danger');
+  assert.equal(at(67).tone, 'ok');
+  assert.equal(at(68).tone, 'warn');
+  assert.equal(at(89).tone, 'warn');
+  assert.equal(at(90).tone, 'danger');
   assert.equal(slaClock(75), '1:15');
 });
