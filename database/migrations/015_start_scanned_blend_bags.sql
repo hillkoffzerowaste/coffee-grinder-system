@@ -1,0 +1,82 @@
+-- Optional scanned-bag receipt for blend starts. The five-argument function remains
+-- available for the existing "receive the whole set" flow.
+create function coffee.start_blend_batch(
+  p_request_id uuid,p_order_id uuid,p_blend_group_no integer,
+  p_quantity integer,p_grinder_user_id uuid,p_bag_ids uuid[]
+) returns jsonb language plpgsql security definer set search_path = coffee,pg_catalog,pg_temp as $$
+declare
+  actor coffee.profiles; receipt coffee.batch_requests; grinder coffee.grinder_users;
+  b coffee.bags; ids uuid[] := '{}'; batch uuid := gen_random_uuid(); payload jsonb; result jsonb;
+  total_count integer; eligible_count integer; selected_count integer;
+begin
+  select * into actor from coffee.profiles where id=coffee.user_id() and active and role in ('packer','admin') and station in ('packing','both') for share;
+  if actor.id is null then raise exception 'FORBIDDEN'; end if;
+  if p_request_id is null then raise exception 'Invalid request id'; end if;
+  payload := jsonb_build_object('order_id',p_order_id,'blend_group_no',p_blend_group_no,'quantity',p_quantity,'grinder_user_id',p_grinder_user_id);
+  if p_bag_ids is not null then payload := payload || jsonb_build_object('bag_ids',to_jsonb(p_bag_ids)); end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_request_id::text,0));
+  select * into receipt from coffee.batch_requests where request_id=p_request_id;
+  if found then
+    if receipt.actor_id<>actor.id or receipt.kind<>'START' or receipt.fingerprint is distinct from payload then raise exception 'Idempotency payload mismatch'; end if;
+    return receipt.response;
+  end if;
+  if p_quantity is null or p_quantity not between 1 and 500 then raise exception 'Invalid quantity'; end if;
+  if p_blend_group_no is null or p_blend_group_no < 1 then raise exception 'Invalid blend group'; end if;
+  if p_bag_ids is not null then
+    if cardinality(p_bag_ids)<>p_quantity then raise exception 'Scanned blend bags are incomplete'; end if;
+    select count(distinct requested.id)::integer into selected_count from unnest(p_bag_ids) as requested(id);
+    if selected_count<>p_quantity then raise exception 'Scanned blend bags contain duplicates'; end if;
+  end if;
+  perform 1 from coffee.orders where id=p_order_id and status='OPEN' for update;
+  if not found then raise exception 'Order not found or not open'; end if;
+  select * into grinder from coffee.grinder_users where id=p_grinder_user_id and active for share;
+  if grinder.id is null then raise exception 'Select active grinder'; end if;
+
+  select count(*)::integer,
+    count(*) filter (where grinding_batch_id is null and (status='QUEUED' or (status='CLAIMED' and (claimed_by=actor.id or actor.role='admin'))))::integer
+    into total_count,eligible_count
+  from coffee.bags
+  where order_id=p_order_id and blend_group_no=p_blend_group_no;
+  if total_count=0 then raise exception 'Blend group not found'; end if;
+  if eligible_count<>total_count or eligible_count<>p_quantity then raise exception 'Blend group is not fully available'; end if;
+  if p_bag_ids is not null then
+    select count(*)::integer into selected_count
+    from coffee.bags
+    where id=any(p_bag_ids) and order_id=p_order_id and blend_group_no=p_blend_group_no
+      and grinding_batch_id is null and (status='QUEUED' or (status='CLAIMED' and (claimed_by=actor.id or actor.role='admin')));
+    if selected_count<>p_quantity then raise exception 'Scanned bags do not match blend group'; end if;
+  end if;
+
+  if p_bag_ids is null then
+    for b in select * from coffee.bags where order_id=p_order_id and blend_group_no=p_blend_group_no
+      and grinding_batch_id is null and (status='QUEUED' or (status='CLAIMED' and (claimed_by=actor.id or actor.role='admin')))
+      order by queue_seq,id for update loop
+      ids := array_append(ids,b.id);
+    end loop;
+  else
+    for b in select * from coffee.bags where id=any(p_bag_ids) order by queue_seq,id for update loop
+      ids := array_append(ids,b.id);
+    end loop;
+  end if;
+  if cardinality(ids)<>p_quantity then raise exception 'Blend group is not fully available'; end if;
+  result := jsonb_build_object('bag_ids',to_jsonb(ids),'order_id',p_order_id,'quantity',p_quantity,'batch_id',batch,'blend_group_no',p_blend_group_no);
+  insert into coffee.batch_requests(request_id,actor_id,kind,fingerprint,response,order_id,batch_id) values(p_request_id,actor.id,'START',payload,result,p_order_id,batch);
+  for b in select * from coffee.bags where id=any(ids) order by queue_seq,id loop
+    update coffee.bags set status='GRINDING',grinding_batch_id=batch,claimed_by=actor.id,lease_until=null,grinder_user_id=grinder.id,grinder_name_snapshot=grinder.name,started_at=now(),version=version+1 where id=b.id;
+    insert into coffee.job_events(bag_id,from_status,to_status,actor_id) values(b.id,b.status,'GRINDING',actor.id);
+    insert into coffee.outbox_events(event_type,aggregate_id,payload) values('BAG_CHANGED',b.id,jsonb_build_object('status','GRINDING','batch_id',batch));
+  end loop;
+  insert into coffee.audit_log(actor_id,action,entity,entity_id,details) values(actor.id,'START_BLEND_BATCH','orders',p_order_id::text,result);
+  return result;
+end $$;
+
+-- Keep old clients/retries compatible with the original fingerprint shape.
+create or replace function coffee.start_blend_batch(
+  p_request_id uuid,p_order_id uuid,p_blend_group_no integer,
+  p_quantity integer,p_grinder_user_id uuid
+) returns jsonb language sql security definer set search_path = coffee,pg_catalog,pg_temp as $$
+  select coffee.start_blend_batch(p_request_id,p_order_id,p_blend_group_no,p_quantity,p_grinder_user_id,null::uuid[])
+$$;
+
+revoke all on function coffee.start_blend_batch(uuid,uuid,integer,integer,uuid,uuid[]) from public,coffee_guest,coffee_app;
+grant execute on function coffee.start_blend_batch(uuid,uuid,integer,integer,uuid,uuid[]) to coffee_app;

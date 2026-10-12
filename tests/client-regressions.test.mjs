@@ -110,7 +110,8 @@ function packingApi(t,jobs=[bag()]) {
     return json({batch:{batch_id:id,bag_ids:selected.map(j=>j.id)}});
   };
   state.commitBlendStart=body=>{
-    const selected=state.jobs.filter(j=>j.order_id===body.orderId&&j.blend_group_no===body.blendGroupNo&&(j.status==='QUEUED'||j.status==='CLAIMED')).slice(0,body.quantity);
+    const eligible=state.jobs.filter(j=>j.order_id===body.orderId&&j.blend_group_no===body.blendGroupNo&&(j.status==='QUEUED'||j.status==='CLAIMED'));
+    const selected=body.bagIds?eligible.filter(j=>body.bagIds.includes(j.id)):eligible.slice(0,body.quantity);
     assert.equal(selected.length,body.quantity,'mock has the requested blend bags');
     const id=state.jobs.some(j=>j.grinding_batch_id===batchId)?secondBatchId:batchId;
     state.jobs=state.jobs.map(j=>selected.includes(j)?{...j,status:'GRINDING',claimed_by:profile.id,grinding_batch_id:id,grinder_name_snapshot:'Operator',started_at:state.startedAt??new Date().toISOString()}:j);
@@ -127,7 +128,10 @@ function packingApi(t,jobs=[bag()]) {
       const parsed=new URL(url,'http://localhost');
       if(parsed.pathname==='/api/jobs'){
         if(parsed.searchParams.get('mine')==='1')return queue(state.jobs.filter(j=>j.status==='GRINDING'&&j.claimed_by===profile.id));
-        if(parsed.searchParams.has('scan'))return queue(state.jobs.filter(j=>j.product_barcode_snapshot===parsed.searchParams.get('scan')));
+        if(parsed.searchParams.has('scan')){
+          const scan=parsed.searchParams.get('scan');
+          return queue(state.jobs.filter(j=>(j.product_barcode_snapshot===scan||String(j.queue_seq)===scan||j.id===scan)&&(!parsed.searchParams.has('orderId')||j.order_id===parsed.searchParams.get('orderId'))));
+        }
         if(parsed.searchParams.has('orderId'))return queue(state.jobs.filter(j=>j.order_id===parsed.searchParams.get('orderId')));
         if(parsed.searchParams.has('batch'))return queue(state.jobs.filter(j=>j.grinding_batch_id===parsed.searchParams.get('batch')));
       }
@@ -444,6 +448,33 @@ test('packing accepts a mixed coffee blend once for every SKU in the set',async(
   assert.equal(api.posts()[0].url,'/api/jobs/start-blend');
   const body=JSON.parse(api.posts()[0].body);assert.deepEqual({orderId:body.orderId,blendGroupNo:body.blendGroupNo,quantity:body.quantity,grinderUserId:body.grinderUserId},{orderId,blendGroupNo:1,quantity:2,grinderUserId:profile.id});
   assert.ok(api.jobs.every(j=>j.status==='GRINDING'&&j.grinding_batch_id===batchId),'all blend bags share the same batch');
+}finally{await unmount();}
+});
+
+test('packing can scan every bag in a mixed set before confirming one batch',async(t)=>{
+ const secondBarcode='001234567891';
+ const jobs=[
+  bag({queue_seq:1,bag_no:1,blend_group_no:1}),
+  bag({queue_seq:2,bag_no:2,blend_group_no:1}),
+  bag({queue_seq:3,bag_no:3,blend_group_no:1,sku_snapshot:'RB-HK-SECOND',product_name_snapshot:'Second coffee',product_barcode_snapshot:secondBarcode}),
+  bag({queue_seq:4,bag_no:4,blend_group_no:1,sku_snapshot:'RB-HK-SECOND',product_name_snapshot:'Second coffee',product_barcode_snapshot:secondBarcode}),
+ ];
+ const api=packingApi(t,jobs),unmount=await mount(PackingWorkspace);
+ try{
+  await clickText('สแกนถุงครบชุด');
+  assert.equal(document.querySelector('dialog[open]'),null,'must wait for all physical bags before opening confirmation');
+  assert.ok(document.body.textContent.includes('สแกนแล้ว 0/4 ถุง'));
+  await scan('packing-scan',product.barcode);
+  await scan('packing-scan',product.barcode);
+  await scan('packing-scan',secondBarcode);
+  assert.ok(document.body.textContent.includes('สแกนแล้ว 3/4 ถุง'));
+  assert.equal(api.posts().length,0);
+  await scan('packing-scan',secondBarcode);
+  assert.equal(document.querySelector('dialog[open]')?.textContent.includes('สแกนครบ 4/4 ถุง'),true);
+  await select('grinder',profile.id);await submitQuantity();
+  assert.equal(api.posts().length,1);
+  const body=JSON.parse(api.posts()[0].body);
+  assert.equal(body.quantity,4);assert.deepEqual(new Set(body.bagIds),new Set(jobs.map(j=>j.id)));
  }finally{await unmount();}
 });
 

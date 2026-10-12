@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 test('scan batch migration and RPC contracts', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql','011_blend_group_mixed_grinds.sql','012_require_complete_scan_batch.sql','013_start_blend_batch.sql','014_set_grinding_sla_three_minutes.sql']) {
+  for (const file of ['001_neon.sql','002_manual_grinds.sql','003_thai_catalog.sql','004_complete_after_grinding.sql','005_scan_batch_grinding.sql','006_admin_control_center.sql','007_blend_groups.sql','008_drop_legacy_start_scan_batch.sql','009_grinding_requires_batch.sql','010_order_notes.sql','011_blend_group_mixed_grinds.sql','012_require_complete_scan_batch.sql','013_start_blend_batch.sql','014_set_grinding_sla_three_minutes.sql','015_start_scanned_blend_bags.sql']) {
     await db.exec(await readFile(new URL(`../database/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -47,11 +47,13 @@ test('scan batch migration and RPC contracts', async (t) => {
       options.blendGroupNo === undefined ? null : options.blendGroupNo,
     ]);
   const blendStart = (orderId, options = {}) => rpc(options.actor ?? packer,
-    'select coffee.start_blend_batch($1,$2,$3,$4,$5) result',[
+    options.bagIds === undefined ? 'select coffee.start_blend_batch($1,$2,$3,$4,$5) result' : 'select coffee.start_blend_batch($1,$2,$3,$4,$5,$6::uuid[]) result',
+    [
       options.key === undefined ? randomUUID() : options.key,orderId,
       options.blendGroupNo === undefined ? 1 : options.blendGroupNo,
       options.quantity === undefined ? 2 : options.quantity,
       options.grinder === undefined ? grinder : options.grinder,
+      ...(options.bagIds === undefined ? [] : [options.bagIds]),
     ]);
   const manual = (payload = lines(), options = {}) => rpc(options.actor ?? packer,
     'select coffee.create_grinding_order($1,$2::jsonb,$3) result',[
@@ -137,6 +139,20 @@ test('scan batch migration and RPC contracts', async (t) => {
     assert.ok(updated.every(b=>b.status==='GRINDING'&&b.grinding_batch_id===started.batch_id));
     assert.equal(new Set(updated.map(b=>b.grind_id)).size,2,'mixed grind members remain distinct inside the batch');
     assert.deepEqual(await blendStart(order.id,{key,quantity:2}),started,'blend start is idempotent');
+  });
+  await t.test('scanned blend start only accepts the exact complete set of bag ids', async () => {
+    const productD = (await query("insert into coffee.products(sku,name,size_grams) values ('BATCH-TEST-SCANNED','Scanned blend beans',250) returning id"))[0].id;
+    const barcodeD = '009876543210987654324';
+    await query('insert into coffee.product_barcodes(product_id,barcode) values ($1,$2)', [productD, barcodeD]);
+    const order = await create([
+      {...lines(2)[0],clientLineId:'scan-blend-a',blendGroupId:'scan-blend',mode:'GROUND'},
+      {clientLineId:'scan-blend-b',productId:productD,productBarcode:barcodeD,grindId:grind8,grindBarcode:'990008',blendGroupId:'scan-blend',mode:'GROUND',quantity:2},
+    ]);
+    const created = await bags(order.id);
+    const ids = created.map(b=>b.id);
+    const started = await blendStart(order.id,{quantity:4,bagIds:ids});
+    assert.deepEqual(new Set(started.bag_ids),new Set(ids));
+    assert.ok((await bags(order.id)).every(b=>b.status==='GRINDING'&&b.grinding_batch_id===started.batch_id));
   });
   await t.test('scan start never combines identical SKU lines from different blend groups', async () => {
     const payload = [
